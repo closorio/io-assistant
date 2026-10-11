@@ -1,0 +1,12 @@
+{
+  "name": "agent-voice",
+  "description": "Marketplace local con el plugin narrador.",
+  "owner": { "name": "seppuq" },
+  "plugins": [
+    {
+      "name": "narrador",
+      "source": "./",
+      "description": "Mentor por voz para Claude Code: observa tu sesión y te la comenta en voz alta."
+    }
+  ]
+}

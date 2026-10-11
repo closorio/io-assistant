@@ -1,0 +1,75 @@
+#!/usr/bin/env python3
+"""Lanza la sesión de Ío: una sola a la vez, en ~/Documentos, como el agente narrador:io en modo auto.
+
+  io               conversación nueva
+  io --continuar   retoma la última conversación de Ío
+"""
+
+import fcntl
+import json
+import os
+import subprocess
+import sys
+import time
+import uuid
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+from comun import IO_JSON, IO_LOCK, RUNTIME, binario_claude, enviar_arrancando  # noqa: E402
+
+CARPETA = Path.home() / "Documentos"
+MONITOR = ("lanza Monitor con la orden `narrador escuchar --dueño io`, la descripción "
+           "«lo que te dice el usuario por voz» y timeout_ms 1800000")
+ARRANQUE = (f"Arranca como Ío: (1) {MONITOR}; (2) mira de un vistazo `narrador sesiones --vivas`; "
+            "(3) saluda en una sola línea de voz, breve, diciendo que ya estás aquí y, si hay sesiones abiertas, cuántas.")
+RETOMAR = f"Has vuelto tras cerrar la terminal: {MONITOR}, y saluda en una sola línea de voz."
+
+
+def avisar(texto: str) -> None:
+    try:
+        enviar_arrancando({"cmd": "decir", "texto": texto})
+    except OSError:
+        pass
+
+
+def main(args: list[str]) -> int:
+    RUNTIME.mkdir(parents=True, exist_ok=True)
+    cerrojo = open(IO_LOCK, "a")  # descriptor no heredable: claude y sus hijos no se quedan el cerrojo
+    limite = time.monotonic() + 2
+    while True:
+        try:
+            fcntl.flock(cerrojo, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            break
+        except BlockingIOError:
+            if time.monotonic() > limite:
+                print("Ío ya está en marcha en otra ventana.")
+                avisar("Ya estoy aquí, en mi ventana.")
+                return 1
+            time.sleep(0.1)
+    claude = binario_claude()
+    if not claude:
+        print("No encuentro el binario de claude (ni en el PATH ni en la extensión de VS Code).")
+        return 1
+    try:
+        anterior = json.loads(IO_JSON.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        anterior = {}
+    if "--continuar" in args and anterior.get("ultima"):
+        sesion = anterior["ultima"]
+        extra = ["--resume", sesion, RETOMAR]
+    else:
+        sesion = str(uuid.uuid4())
+        extra = ["--session-id", sesion, ARRANQUE]
+    IO_JSON.write_text(json.dumps({"session_id": sesion, "pid": os.getpid(), "inicio": time.time(),
+                                   "ultima": sesion}), encoding="utf-8")
+    orden = [claude, "--agent", "narrador:io", "--permission-mode", "auto", "--name", "Ío", *extra]
+    try:
+        return subprocess.run(orden, cwd=CARPETA, env=dict(os.environ, NARRADOR_IO="1")).returncode
+    except KeyboardInterrupt:
+        return 130
+    finally:
+        IO_JSON.write_text(json.dumps({"ultima": sesion, "fin": time.time()}), encoding="utf-8")
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
