@@ -5,7 +5,7 @@
 - **Asistente (uso principal):** Alt + Shift derecho abre Ío. Ver [Ío, asistente](#ío-asistente).
 - **Mentor:** Ío lo hace cuando se lo pides, y también hay `/narrador:mentor` para una sesión aparte. Un visor resume cada turno de la sesión observada.
 - **Oído:** un daemon escucha el micrófono, detecta cuándo hablas (Silero VAD) y lo transcribe en local (faster-whisper). Solo le llega a Ío lo que va dirigido a él.
-- **Voz:** un hook `MessageDisplay` recoge las líneas que empiezan por `🎙️` y un daemon las lee en voz alta con voz local: Piper, o spd-say de respaldo. No usa servicios de pago.
+- **Voz:** un hook `MessageDisplay` recoge las líneas que empiezan por `🎙️` y un daemon las lee en voz alta. Por defecto con Kokoro (voz Dora), en local; Piper y spd-say son los respaldos. No usa servicios de pago. Edge TTS está disponible como opción, pero va por internet.
 - **Narrador (la idea original, opcional):** el output style `Narrador` hace que la misma sesión en la que trabajas narre lo que hace.
 
 ## Instalación
@@ -27,7 +27,7 @@ Después, en VS Code, recarga la ventana (`Developer: Reload Window`).
 
 ## Ío, asistente
 
-**Abrirlo:** Alt + Shift derecho. Abre una terminal «Ío» en `~/Documentos` con `bin/io`. Si ya está abierto, te lo dice por voz, porque Wayland no deja traer su ventana al frente. Para retomar la última conversación, `bin/io --continuar`. La primera vez, Claude Code te pedirá confianza para `~/Documentos`: acéptala, y así los trabajadores pueden ir en segundo plano en tus proyectos.
+**Abrirlo:** Alt + Shift derecho. Abre una terminal «Ío» en `~/Documentos` con `bin/io`. Si ya está abierto, te lo dice por voz, porque Wayland no deja traer su ventana al frente. Para retomar la última conversación, `bin/io --continuar`. La primera vez, Claude Code te pedirá confianza para `~/Documentos`: acéptala. Esa confianza no pasa a las subcarpetas, así que para que los trabajadores de un proyecto vayan en segundo plano (`claude --bg`) hay que abrir `claude` una vez en ese proyecto y aceptar allí. Mientras tanto van sin interfaz, que también funciona.
 
 **Qué es:** una sesión de Claude Code con el agente `narrador:io`, definido en [agents/io.md](agents/io.md):
 - **Modelo:** Sonnet 5.5.
@@ -45,9 +45,9 @@ Después, en VS Code, recarga la ventana (`Developer: Reload Window`).
 | `personal` | «¿Qué tengo hoy?», «¿algún correo importante?», «prepárame un borrador para…». Necesita los conectores de claude.ai conectados |
 | `mentor` | «Vigila la sesión de holo-ui y coméntamela» |
 
-**Trabajadores:** para trabajo largo en un proyecto, Ío lanza `claude --bg` en esa carpeta, con su `CLAUDE.md` y sus skills. Si la carpeta no es de confianza, usa `claude -p`. Sigue el avance y te avisa al terminar. `bin/narrador trabajador lista` y `bin/narrador trabajador abrir NOMBRE` los muestran.
+**Trabajadores:** para trabajo largo en un proyecto, Ío lanza `claude --bg` en esa carpeta, con su `CLAUDE.md` y sus skills. Si esa carpeta concreta no es de confianza, usa `claude -p`, sin interfaz: lo que necesite permiso se le deniega y lo cuenta en su resultado. Sigue el avance y te avisa al terminar. `bin/narrador trabajador lista` y `bin/narrador trabajador abrir NOMBRE` los muestran.
 
-**Envíos y `git push`:** Ío no los hace por iniciativa propia. Antes de algo que salga en tu nombre te dice qué va a hacer y espera tu «sí». Es una norma de su persona, no un bloqueo técnico: la confirmación por voz forzada por un hook ([scripts/riesgo.py](scripts/riesgo.py), con pruebas en `tests/`) está preparada pero sin conectar.
+**Envíos y `git push`:** Ío no los hace por iniciativa propia. Antes de algo que salga en tu nombre te dice qué va a hacer y espera tu «sí». Es una norma de su persona, reforzada por un hook `PreToolUse` ([scripts/pretool.py](scripts/pretool.py), que usa [scripts/riesgo.py](scripts/riesgo.py)): ante un correo, un cambio de calendario o un `git push`, Ío te lo dice en voz alta y la aprobación se da en la pantalla. Solo actúa en la sesión de Ío. La confirmación hablada con «confirmo» ([scripts/riesgo.py](scripts/riesgo.py) ya la interpreta) queda sin conectar.
 
 **Ío o `/narrador:mentor`, no los dos a la vez:** el oído entrega tus frases a una sola sesión. La segunda que lo intente recibe «ya te escucha Ío».
 
@@ -55,7 +55,7 @@ Después, en VS Code, recarga la ventana (`Developer: Reload Window`).
 
 1. Trabaja en tu sesión de siempre, la **ejecutora**, sin estilo de voz.
 2. Abre otra sesión de Claude Code **en el mismo proyecto** (otra pestaña de VS Code u otra terminal) y escribe `/narrador:mentor`. Si tienes varias sesiones abiertas, te preguntará cuál observar; `/narrador:mentor sesiones` las lista y `/narrador:mentor ID` elige una.
-3. **Para hablarle, empieza la frase por «Ío»**: «Ío, ¿por qué ha cambiado eso?». Mientras dura la conversación (45 s después de lo último que dijo) puedes seguir sin nombrarle.
+3. **Para hablarle, empieza la frase por «Ío»**: «Ío, ¿por qué ha cambiado eso?». Mientras dura la conversación puedes seguir sin nombrarle: mientras Ío habla o trabaja, y hasta 90 s después. Pasado ese tiempo, si le hablas sin nombrarle, suena un tono suave y descendente: es que tienes que empezar por «Ío».
 4. **Para interrumpirle, háblale**: a los ~250 ms de oírte se calla. Solo tiene sentido con cascos; con altavoces, pon `escucha.interrumpir` a `false`, o se cortaría a sí mismo.
 5. **Super+I** pausa o reanuda la escucha (cierra el micrófono). Lo confirma en voz alta.
 
@@ -100,10 +100,14 @@ Cuando escribes un mensaje en una sesión, su voz se calla y descarta lo que ten
 
 | Motor | Coste | Calidad | Notas |
 |---|---|---|---|
-| `piper` (por defecto) | Gratis, local | Correcta, algo plana | Unos 100–300 ms por frase en CPU. La primera frase tras arrancar tarda unos 3 s mientras carga el modelo |
-| `spd` | Gratis, local | Robótica | Usa `spd-say`. Es el respaldo |
+| `kokoro` (el que usa Ío) | Gratis, local | Natural | Voces en español: `ef_dora` (la elegida), `em_alex` y `em_santa`. Alrededor de 1 s por frase en CPU; la primera tras arrancar tarda 1,5 s más mientras carga el modelo |
+| `piper` | Gratis, local | Correcta, algo plana | Unos 100–300 ms por frase en CPU. Es el primer respaldo |
+| `edge` | Gratis, **por internet** | Natural | Voces de Microsoft (p. ej. `es-MX-DaliaNeural`). El texto que dice Ío sale hacia sus servidores. Necesita `ffmpeg` |
+| `spd` | Gratis, local | Robótica | Usa `spd-say`. Es el último respaldo |
 
-Si Piper falla, habla spd. Cada fallo queda en `~/.local/share/narrador/narrador.log`.
+Si el motor elegido falla, habla el siguiente: Kokoro → Piper → spd, y Edge → Piper → spd. Kokoro nunca cae en Edge, para que tu texto no salga del equipo sin que lo sepas. Cada fallo queda en `~/.local/share/narrador/narrador.log`.
+
+**Cambiar de motor o de voz:** `bin/narrador motor kokoro|piper|edge|spd`, `bin/narrador voz NOMBRE` y `bin/narrador velocidad N`, sobre el motor activo. `bin/narrador voces` las lista. También puedes pedírselo a Ío.
 
 **Más voces de Piper:** `scripts/instalar.sh es_ES-sharvard-medium`, y después `bin/narrador voz es_ES-sharvard-medium`. Hay un catálogo en huggingface.co/rhasspy/piper-voices.
 
@@ -113,15 +117,18 @@ No existe hasta el primer cambio con la CLI; mientras tanto se usan los valores 
 
 | Clave | Para qué sirve |
 |---|---|
-| `motor` | `piper` o `spd` |
+| `motor` | `kokoro`, `piper`, `edge` o `spd` |
+| `kokoro.voz` / `kokoro.velocidad` | Voz (`ef_dora`, `em_alex`, `em_santa`) y velocidad de Kokoro (0,5–2) |
+| `edge.voz` / `edge.velocidad` | Voz de Edge y velocidad en % (-50..100) |
 | `silencio` | `true` para que no hable |
 | `cola_max` | Frases pendientes como máximo; si se supera, se descarta la más vieja |
 | `reproductor` | `pw-play` por defecto; `aplay` si no usas PipeWire |
 | `destino` | Salida de audio de la voz (`node.name` de PipeWire); `null` = la del sistema. Cámbiala con `narrador salida` |
-| `piper.voz` / `piper.velocidad` | Voz y velocidad de Piper (0,5–2) |
+| `piper.voz` / `piper.velocidad` / `piper.hablante` | Voz, velocidad (0,5–2) y hablante (en voces con varios, como `es_ES-sharvard-medium`) de Piper |
 | `spd.idioma` / `spd.velocidad` | Idioma y velocidad de spd (-100..100). spd ignora `destino` |
 | `escucha.nombre` | Palabra que despierta a Ío (`Ío`) |
-| `escucha.ventana` | Segundos de conversación sin tener que nombrarle (45) |
+| `escucha.ventana` | Segundos de conversación sin tener que nombrarle, contados desde lo último que Ío dijo o hizo (90) |
+| `escucha.aviso_descarte` | `true` para oír un tono cuando descarta una frase por no oír su nombre |
 | `escucha.interrumpir` | `true` para cortarle hablando; solo con cascos |
 | `escucha.pausa` | Micrófono cerrado (Super+I lo alterna) |
 | `escucha.modelo` | Modelo de faster-whisper: `small` (~1,5 s por frase); `base` es 3 veces más rápido pero entiende bastante peor |
@@ -157,14 +164,14 @@ daemon (scripts/daemon.py): cola → motor (scripts/motores.py) → WAV → pw-p
 ```
 .claude-plugin/    plugin.json, marketplace.json (marketplace local "agent-voice")
 agents/io.md       el agente Ío: persona, modelo y memoria
-io/guias/          guías que Ío lee bajo demanda (sesiones, proyectos, escritorio, personal, mentor)
+skills/io-*/       guías de Ío como skills (sesiones, proyectos, escritorio, personal, mentor); `narrador guia` las lee como respaldo
 skills/mentor/     /narrador:mentor (mentor en una sesión aparte)
 skills/voz/        /narrador:voz
 output-styles/     narrador.md (estilo opcional para narrar en la misma sesión)
 hooks/hooks.json   MessageDisplay y UserPromptSubmit → scripts/hook.py
 scripts/           comun.py, hook.py, daemon.py, motores.py, visor.py, oido.py, escucha.py, asistente.py,
-                   riesgo.py (sin conectar), instalar.sh
-tests/             pruebas de riesgo.py (python3 -m unittest discover -s tests)
+                   riesgo.py, pretool.py, instalar.sh
+tests/             pruebas de riesgo.py y pretool.py (python3 -m unittest discover -s tests)
 bin/narrador       CLI (en el PATH de Bash mientras el plugin esté activo)
 bin/io             lanzador de Ío (una sola instancia, en ~/Documentos)
 bin/io-ventana     lo que ejecuta Alt + Shift derecho

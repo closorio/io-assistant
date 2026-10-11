@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Prepara el entorno local de voz en ~/.local/share/narrador/: venv con Piper y faster-whisper,
-# voces de Piper y el modelo small de Whisper (unos 600 MB) para que Ío te escuche.
+# Prepara el entorno local de voz en ~/.local/share/narrador/: venv con Kokoro, Piper, faster-whisper
+# y edge-tts, el modelo de Kokoro (~350 MB), voces de Piper y el modelo small de Whisper (~600 MB).
 # Uso: scripts/instalar.sh [VOZ ...]   (por defecto es_ES-davefx-medium)
 set -euo pipefail
 
@@ -15,9 +15,22 @@ if [ ! -x "$VENV/bin/python" ]; then
   echo "· creando venv en $VENV"
   python3 -m venv "$VENV"
 fi
-echo "· instalando piper-tts, faster-whisper y edge-tts"
+echo "· instalando kokoro-onnx, piper-tts, faster-whisper y edge-tts"
 "$VENV/bin/pip" install -q --upgrade pip
-"$VENV/bin/pip" install -q piper-tts faster-whisper edge-tts
+"$VENV/bin/pip" install -q kokoro-onnx piper-tts faster-whisper edge-tts
+
+KOKORO="$RUNTIME/kokoro"
+mkdir -p "$KOKORO"
+for archivo in kokoro-v1.0.onnx voices-v1.0.bin; do
+  if [ -s "$KOKORO/$archivo" ]; then
+    echo "· $archivo de Kokoro ya descargado"
+  else
+    echo "· descargando $archivo de Kokoro"
+    curl -sSfL -o "$KOKORO/$archivo.part" \
+      "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/$archivo"
+    mv "$KOKORO/$archivo.part" "$KOKORO/$archivo"
+  fi
+done
 
 echo "· preparando el modelo small de Whisper"
 "$VENV/bin/python" -c "from faster_whisper import WhisperModel; WhisperModel('small', device='cpu', compute_type='int8', download_root='$RUNTIME/whisper')"

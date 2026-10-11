@@ -1,5 +1,5 @@
 {
-  "description": "Narrador: lee en voz alta las líneas 🎙️ y se calla cuando escribes",
+  "description": "Narrador: lee en voz alta las líneas 🎙️, se calla cuando escribes y pide confirmación antes de enviar en nombre del usuario",
   "hooks": {
     "MessageDisplay": [
       {
@@ -7,7 +7,9 @@
           {
             "type": "command",
             "command": "python3",
-            "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/hook.py"],
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/scripts/hook.py"
+            ],
             "timeout": 5
           }
         ]
@@ -19,8 +21,25 @@
           {
             "type": "command",
             "command": "python3",
-            "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/hook.py"],
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/scripts/hook.py"
+            ],
             "timeout": 3
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash|mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/scripts/pretool.py"
+            ],
+            "timeout": 5
           }
         ]
       }

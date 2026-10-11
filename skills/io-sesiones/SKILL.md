@@ -1,3 +1,8 @@
+---
+name: io-sesiones
+description: Ver las sesiones de Claude Code abiertas, observarlas, mandarles mensajes y lanzar trabajadores en otros proyectos. Úsala cuando el usuario hable de otra sesión, de delegar trabajo largo o de un trabajador.
+---
+
 # Guía: sesiones de Claude Code
 
 ## Ver qué hay
@@ -20,6 +25,7 @@ Arranca Monitor con `narrador seguir ID`, la descripción «turnos de <proyecto>
 
 - `narrador trabajador lanzar PROYECTO "TAREA" [--modelo opus]` arranca una sesión en segundo plano en ese proyecto, con su `CLAUDE.md` y sus skills. Usa Opus para tareas difíciles y el modelo por defecto para las rutinarias.
 - Escribe la tarea completa y autosuficiente: qué hacer, qué no tocar, y que termine con un resumen de lo hecho y de lo que queda pendiente.
+- Añade `--contrato` y el encargo incluye límites (sin commits ni envíos), comprobación y un archivo de resultado con un resumen corto apto para voz; `trabajador lista` lo muestra. Úsalo por defecto.
 - `narrador trabajador lista` muestra su estado y el resultado. Para seguirlo turno a turno, `narrador seguir SESIÓN` en un Monitor.
 - `narrador trabajador abrir NOMBRE` abre una terminal con esa sesión, para que el usuario la vea o la continúe.
 - Si la carpeta no es de confianza, el trabajador va sin interfaz: lo que necesite permiso se le deniega y lo dirá en su resultado. Cuéntaselo al usuario y ofrécele abrirlo.

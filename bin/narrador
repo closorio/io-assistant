@@ -3,9 +3,9 @@
 
   narrador estado | silencio | activar | saltar | vaciar | prueba | parar | voces
   narrador decir TEXTO...
-  narrador motor edge|piper|spd
-  narrador voz NOMBRE        (voz de Piper instalada en ~/.local/share/narrador/voces)
-  narrador velocidad N       (Piper: 0.5–2.0 · spd: -100..100)
+  narrador motor kokoro|edge|piper|spd
+  narrador voz NOMBRE        (Kokoro: ef_dora, em_alex, em_santa · Piper: instaladas en ~/.local/share/narrador/voces)
+  narrador velocidad N       (Kokoro y Piper: 0.5–2.0 · Edge: -50..100 % · spd: -100..100)
   narrador salidas           (salidas de audio; * la que usa la voz)
   narrador salida TEXTO|defecto   (p. ej. «narrador salida hyperx» para oírla en los cascos)
   narrador sesiones [--vivas|--todas]   (de este proyecto · abiertas ahora · recientes de todos)
@@ -13,7 +13,7 @@
   narrador escuchar [--dueño io|mentor]   (oído: entrega lo que le dices a Ío; lo usa Monitor)
   narrador escucha [estado|pausa|activar|alternar|parar]
   narrador proyectos [--todos] [--git]
-  narrador trabajador lanzar PROYECTO "TAREA" [--modelo opus] | lista | abrir NOMBRE
+  narrador trabajador lanzar PROYECTO "TAREA" [--modelo opus] [--contrato] | lista | abrir NOMBRE
   narrador recordar MINUTOS TEXTO
   narrador guia [TEMA]       (guías de Ío: sesiones, proyectos, escritorio, personal, mentor)
 """
@@ -60,7 +60,9 @@ def estado() -> None:
         print(f"daemon parado (arranca solo con la primera frase) · motor {cfg['motor']} · "
               f"silencio {'sí' if cfg['silencio'] else 'no'}")
     m = cfg["motor"]
-    if m == "edge":
+    if m == "kokoro":
+        print(f"kokoro: voz {cfg['kokoro']['voz']} · velocidad {cfg['kokoro']['velocidad']}")
+    elif m == "edge":
         print(f"edge: voz {cfg['edge']['voz']} · velocidad {cfg['edge']['velocidad']}%")
     elif m == "piper":
         print(f"piper: voz {cfg['piper']['voz']} · velocidad {cfg['piper']['velocidad']}")
@@ -68,7 +70,15 @@ def estado() -> None:
         print(f"spd: idioma {cfg['spd']['idioma']} · velocidad {cfg['spd']['velocidad']}")
 
 
+VOCES_KOKORO = ("ef_dora", "em_alex", "em_santa")  # las de español
+
+
 def voz(nombre: str) -> None:
+    if leer_config()["motor"] == "kokoro":
+        if nombre not in VOCES_KOKORO:
+            sys.exit(f"voz de Kokoro en español desconocida: {nombre}. Hay: {', '.join(VOCES_KOKORO)}")
+        cambiar(lambda c: c["kokoro"].update(voz=nombre), f"voz de Kokoro: {nombre}")
+        return
     if leer_config()["motor"] == "edge":
         cambiar(lambda c: c["edge"].update(voz=nombre), f"voz de Edge: {nombre}")
         return
@@ -86,6 +96,9 @@ def velocidad(valor: str) -> None:
     elif m == "spd":
         v = max(-100, min(int(valor), 100))
         cambiar(lambda c: c["spd"].update(velocidad=v), f"velocidad de spd: {v}")
+    elif m == "kokoro":
+        v = max(0.5, min(float(valor), 2.0))
+        cambiar(lambda c: c["kokoro"].update(velocidad=v), f"velocidad de Kokoro: {v}")
     else:
         v = max(0.5, min(float(valor), 2.0))
         cambiar(lambda c: c["piper"].update(velocidad=v), f"velocidad de Piper: {v}")
@@ -158,14 +171,15 @@ def main(args: list[str]) -> None:
             print("aviso: el narrador está en silencio (narrador activar)")
         enviar_arrancando({"cmd": "decir", "texto": texto}, espera=3.0)
         print("enviado")
-    elif cmd == "motor" and resto and resto[0] in ("edge", "piper", "spd"):
+    elif cmd == "motor" and resto and resto[0] in ("kokoro", "edge", "piper", "spd"):
         cambiar(lambda c: c.update(motor=resto[0]), f"motor: {resto[0]}")
     elif cmd == "voz" and resto:
         voz(resto[0])
     elif cmd == "velocidad" and resto:
         velocidad(resto[0])
     elif cmd == "voces":
-        print("\n".join(voces_instaladas()) or "ninguna voz de Piper instalada")
+        print("kokoro: " + ", ".join(VOCES_KOKORO))
+        print("piper:  " + (", ".join(voces_instaladas()) or "ninguna instalada"))
     elif cmd == "sesiones":
         if "--vivas" in resto:
             asistente.vivas()

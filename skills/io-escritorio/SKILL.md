@@ -1,3 +1,8 @@
+---
+name: io-escritorio
+description: Acciones del escritorio GNOME/Wayland: notificaciones, abrir webs y aplicaciones, volumen, recordatorios y pausar la escucha. Úsala para abrir algo, cambiar volumen o poner un recordatorio.
+---
+
 # Guía: escritorio (GNOME en Wayland)
 
 - **Notificación:** `notify-send -a Ío "Título" "Texto"`.

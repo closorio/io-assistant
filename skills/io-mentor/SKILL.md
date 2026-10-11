@@ -1,3 +1,8 @@
+---
+name: io-mentor
+description: Modo mentor: observar una sesión de Claude Code y comentarla turno a turno en voz alta. Úsala cuando el usuario pida vigilar, seguir u observar una sesión.
+---
+
 # Guía: modo mentor (observar una sesión y comentarla)
 
 Úsala cuando el usuario te pida que observes una sesión: «Ío, vigila la sesión de holo-ui».
@@ -20,3 +25,7 @@ Si el turno no merece comentario, escribe «(sin comentario)», sin línea de vo
 - **`la sesión ejecutora cambió`** (tras un `/clear`): dilo en una línea.
 
 Si necesitas contexto, lee el archivo concreto, como mucho una o dos lecturas por evento. Si caduca el Monitor, rearma la misma orden sin comentar. Para dejar de observar, usa TaskStop.
+
+## Notas de continuidad
+
+Por cada sesión que observes mantén un archivo corto `~/.local/share/narrador/notas/<ID de sesión>.md` (créalo la primera vez) con: qué se está haciendo, decisiones tomadas, riesgos abiertos y el siguiente paso. Actualízalo cada pocos turnos relevantes y siempre antes de que caduque el Monitor. Si retomas una sesión tras un rearme o una compactación, léelo primero en lugar de reconstruir el hilo. Máximo 15 líneas; sin datos sensibles.

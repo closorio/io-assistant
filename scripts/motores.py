@@ -13,12 +13,23 @@ from pathlib import Path
 from comun import RUNTIME, VOCES
 
 
+KOKORO = RUNTIME / "kokoro"
+
+
 def _wav_temporal() -> Path:
     tmp = RUNTIME / "tmp"
     tmp.mkdir(parents=True, exist_ok=True)
     fd, ruta = tempfile.mkstemp(suffix=".wav", dir=tmp)
     os.close(fd)
     return Path(ruta)
+
+
+def _reproducir(cfg: dict, ruta: Path) -> list[str]:
+    """La orden que reproduce un WAV, por la salida elegida si es pw-play."""
+    orden = [cfg["reproductor"]]
+    if cfg.get("destino") and orden[0] == "pw-play":
+        orden += ["--target", cfg["destino"]]
+    return orden + [str(ruta)]
 
 
 class Motor:
@@ -57,10 +68,45 @@ class Piper(Motor):
         ruta = _wav_temporal()
         with wave.open(str(ruta), "wb") as wav:
             self.voz.synthesize_wav(texto, wav, syn_config=self.syn)
-        orden = [self.cfg["reproductor"]]
-        if self.cfg.get("destino") and orden[0] == "pw-play":
-            orden += ["--target", self.cfg["destino"]]
-        return orden + [str(ruta)], ruta
+        return _reproducir(self.cfg, ruta), ruta
+
+
+class Kokoro(Motor):
+    """Voces neuronales de Kokoro, en local (en español: ef_dora, em_alex, em_santa)."""
+
+    nombre = "kokoro"
+
+    def __init__(self, cfg: dict):
+        super().__init__(cfg)
+        from kokoro_onnx import Kokoro as Modelo
+
+        modelo, voces = KOKORO / "kokoro-v1.0.onnx", KOKORO / "voices-v1.0.bin"
+        if not (modelo.exists() and voces.exists()):
+            raise FileNotFoundError("faltan los archivos de Kokoro (ejecuta scripts/instalar.sh)")
+        self.modelo = Modelo(str(modelo), str(voces))
+
+    def preparar(self, texto):
+        import numpy as np
+
+        k = self.cfg["kokoro"]
+        velocidad = max(0.5, min(float(k.get("velocidad") or 1.0), 2.0))
+        muestras, tasa = self.modelo.create(texto, voice=k["voz"], speed=velocidad, lang="es")
+        ruta = _wav_temporal()
+        with wave.open(str(ruta), "wb") as wav:
+            wav.setnchannels(1)
+            wav.setsampwidth(2)
+            wav.setframerate(tasa)
+            wav.writeframes((np.clip(muestras, -1, 1) * 32767).astype(np.int16).tobytes())
+        tono = float(k.get("tono") or 1.0)
+        if abs(tono - 1.0) > 1e-3:
+            # tono: multiplicador de la altura (1.03 = un 3 % más agudo), sin cambiar la velocidad
+            salida = ruta.with_suffix(".tono.wav")
+            try:
+                subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(ruta), "-af", f"rubberband=pitch={tono},volume=2.0,alimiter=limit=0.95", str(salida)], check=True)
+                os.replace(salida, ruta)
+            finally:
+                salida.unlink(missing_ok=True)
+        return _reproducir(self.cfg, ruta), ruta
 
 
 
@@ -90,10 +136,7 @@ class Edge(Motor):
             raise
         finally:
             mp3.unlink(missing_ok=True)
-        orden = [self.cfg["reproductor"]]
-        if self.cfg.get("destino") and orden[0] == "pw-play":
-            orden += ["--target", self.cfg["destino"]]
-        return orden + [str(ruta)], ruta
+        return _reproducir(self.cfg, ruta), ruta
 
 
 class Spd(Motor):
@@ -107,12 +150,16 @@ class Spd(Motor):
         subprocess.run(["spd-say", "-C"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
-MOTORES = {m.nombre: m for m in (Edge, Piper, Spd)}
-RESPALDO = ["edge", "piper", "spd"]
+MOTORES = {m.nombre: m for m in (Kokoro, Edge, Piper, Spd)}
+# Si el motor elegido falla, los respaldos son locales: Kokoro nunca cae en Edge, que va por internet.
+RESPALDO = {
+    "kokoro": ["kokoro", "piper", "spd"],
+    "edge": ["edge", "piper", "spd"],
+    "piper": ["piper", "spd"],
+    "spd": ["spd"],
+}
 
 
 def cadena(principal: str) -> list[str]:
-    """El motor elegido y, detrás, los demás como respaldo (edge → piper → spd)."""
-    if principal not in MOTORES:
-        principal = "piper"
-    return RESPALDO[RESPALDO.index(principal):]
+    """El motor elegido y, detrás, sus respaldos."""
+    return RESPALDO.get(principal, RESPALDO["piper"])

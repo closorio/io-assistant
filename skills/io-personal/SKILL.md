@@ -1,3 +1,8 @@
+---
+name: io-personal
+description: Agenda, correo, Drive y Notion con los conectores de claude.ai, incluidas las reglas para leer y enviar en nombre del usuario. Úsala ante cualquier petición de calendario, correo o documentos.
+---
+
 # Guía: agenda, correo y documentos
 
 Usa los conectores de claude.ai de esta sesión (Google Calendar, Gmail, Google Drive, Notion). Búscalos con ToolSearch si no están cargados. Si un conector no aparece o falla, díselo al usuario: tiene que conectarlo en los ajustes de conectores de claude.ai.

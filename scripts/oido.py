@@ -23,12 +23,14 @@ import threading
 import time
 import unicodedata
 import wave
+from pathlib import Path
 from collections import deque
 
 import numpy as np
 
 from comun import (
-    CONFIG, LOG, OIDO_LOCK, OIDO_PID, OIDO_SALIDA, OIDO_VIVO, RUNTIME, enviar, leer_config,
+    CONFIG, IO_JSON, LOG, OIDO_LOCK, OIDO_PID, OIDO_SALIDA, OIDO_VIVO, RUNTIME, enviar, leer_config,
+    ruta_transcript,
 )
 
 TASA = 16000
@@ -42,6 +44,9 @@ MIN_VOZ = 12  # bloques con voz para que merezca la pena transcribir (~400 ms)
 MAX_FRASE = 30 * TASA // BLOQUE
 CORTE = 8  # bloques con voz mientras Ío habla para cortarle (~250 ms)
 SIN_MENTOR = 120  # s sin latido de `narrador escuchar` antes de apagarse
+TRABAJANDO = 6  # s: si el transcript de Ío se escribió hace menos, está trabajando y la ventana sigue abierta
+AVISO_CADA = 20  # s mínimos entre dos tonos de «no te he oído decir Ío»
+CARPETA_IO = Path.home() / "Documentos"  # donde arranca bin/io
 
 PROMPT = "Conversación en español con Ío, un mentor de programación."
 # Lo que Whisper suele inventarse con ruido o silencio en español.
@@ -111,6 +116,9 @@ class Oido:
         self.ventana_hasta = 0.0  # monotonic hasta el que se le puede hablar sin nombrarle
         self.frases: queue.Queue = queue.Queue()
         self.proc = None
+        self.transcript_io: Path | None = None  # el de la sesión de Ío, si está abierta
+        self.revision_io = 0.0
+        self.ultimo_aviso = 0.0
 
     # --- configuración y estado de la voz ---
 
@@ -125,6 +133,46 @@ class Oido:
     def esc(self) -> dict:
         return self.cfg["escucha"]
 
+    def io_trabajando(self) -> bool:
+        """Ío está pensando o usando herramientas: su transcript se ha escrito hace un momento."""
+        ahora = time.monotonic()
+        if ahora - self.revision_io > 5:  # io.json cambia solo al abrir o cerrar Ío
+            self.revision_io = ahora
+            try:
+                sesion = json.loads(IO_JSON.read_text(encoding="utf-8")).get("session_id")
+            except (OSError, ValueError):
+                sesion = None
+            self.transcript_io = ruta_transcript(CARPETA_IO, sesion) if sesion else None
+        if not self.transcript_io:
+            return False
+        try:
+            return time.time() - self.transcript_io.stat().st_mtime < TRABAJANDO
+        except OSError:
+            return False
+
+    def avisar_descarte(self) -> None:
+        """Un tono suave y descendente: «te he oído, pero no me has nombrado»."""
+        if not self.esc.get("aviso_descarte", True) or time.monotonic() - self.ultimo_aviso < AVISO_CADA:
+            return
+        self.ultimo_aviso = time.monotonic()
+        tono = RUNTIME / "tmp" / "descarte.wav"
+        if not tono.exists():
+            tono.parent.mkdir(parents=True, exist_ok=True)
+            partes = []
+            for frecuencia in (660, 440):
+                t = np.arange(int(TASA * 0.09)) / TASA
+                envolvente = np.minimum(1, np.minimum(t, t[::-1]) / 0.015)  # sin chasquidos
+                partes.append(0.15 * np.sin(2 * np.pi * frecuencia * t) * envolvente)
+            with wave.open(str(tono), "wb") as w:
+                w.setnchannels(1)
+                w.setsampwidth(2)
+                w.setframerate(TASA)
+                w.writeframes((np.concatenate(partes) * 32767).astype(np.int16).tobytes())
+        orden = [self.cfg.get("reproductor", "pw-play")]
+        if self.cfg.get("destino") and orden[0] == "pw-play":
+            orden += ["--target", self.cfg["destino"]]
+        subprocess.Popen(orden + [str(tono)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
     def vigia(self) -> None:
         """Sigue si Ío habla (para la ventana y para cortarle), la config y el latido del mentor."""
         while not parar.is_set():
@@ -133,7 +181,7 @@ class Oido:
                 self.hablando = bool(estado.get("hablando"))
             except (OSError, ValueError):
                 self.hablando = False
-            if self.hablando:
+            if self.hablando or self.io_trabajando():
                 self.ventana_hasta = max(self.ventana_hasta, time.monotonic() + float(self.esc["ventana"]))
             mtime = self._mtime_config()
             if mtime != self.cfg_mtime:
@@ -248,7 +296,10 @@ class Oido:
             log(f"ruido descartado ({len(audio) / TASA:.1f} s de audio, {ms:.0f} ms)")
             return
         if fin > self.ventana_hasta and not self.despierta.search(normalizar(texto)):
-            log(f"frase sin «{self.esc['nombre']}» fuera de conversación, descartada ({len(texto.split())} palabras)")
+            palabras = len(texto.split())
+            log(f"frase sin «{self.esc['nombre']}» fuera de conversación, descartada ({palabras} palabras)")
+            if palabras >= 3:  # parece una frase de verdad, no un ruido o una palabra suelta
+                self.avisar_descarte()
             return
         self.ventana_hasta = time.monotonic() + float(self.esc["ventana"])
         self.callar_a_io()  # le estás hablando: lo que tuviera pendiente ya no viene a cuento
@@ -268,7 +319,8 @@ def main() -> None:
             if time.monotonic() > limite:
                 sys.exit(0)  # ya hay otro oído
             time.sleep(0.1)
-    OIDO_PID.write_text(str(os.getpid()), encoding="utf-8")
+    # pid y de qué copia del código viene: `narrador escuchar` reinicia el oído si es de otra versión
+    OIDO_PID.write_text(f"{os.getpid()}\n{Path(__file__).resolve()}", encoding="utf-8")
     signal.signal(signal.SIGTERM, lambda *_: parar.set())
     if OIDO_SALIDA.exists() and OIDO_SALIDA.stat().st_size > 1_000_000:
         OIDO_SALIDA.write_text("", encoding="utf-8")

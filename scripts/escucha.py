@@ -40,6 +40,29 @@ def latido() -> None:
     OIDO_VIVO.touch()
 
 
+def datos_oido() -> tuple[int | None, str]:
+    """(pid, ruta de su código) del oído en marcha, según su archivo pid."""
+    try:
+        lineas = OIDO_PID.read_text(encoding="utf-8").split("\n")
+        return int(lineas[0]), lineas[1] if len(lineas) > 1 else ""
+    except (OSError, ValueError):
+        return None, ""
+
+
+def jubilar_oido_viejo() -> None:
+    """Si el oído en marcha es de otra copia del código (otra versión del plugin), lo para."""
+    pid, codigo = datos_oido()
+    if not pid or codigo == str(OIDO.resolve()):
+        return
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except OSError:
+        return
+    limite = time.monotonic() + 8
+    while oido_en_marcha() and time.monotonic() < limite:
+        time.sleep(0.2)
+
+
 def formato(registro: dict) -> str:
     evento = registro.get("evento")
     if evento == "listo":
@@ -76,6 +99,8 @@ def escuchar(dueno: str = "mentor") -> None:
     posicion = RUNTIME / f"oido-{dueno}.pos"
     latido()
     arrancado = 0.0
+    if oido_en_marcha():
+        jubilar_oido_viejo()
     if not oido_en_marcha():
         arrancar_daemon(OIDO)
         arrancado = time.monotonic()
@@ -141,7 +166,7 @@ def pausar(pausa: bool | None) -> None:
 def estado() -> None:
     cfg = leer_config()["escucha"]
     if oido_en_marcha():
-        pid = OIDO_PID.read_text(encoding="utf-8").strip() if OIDO_PID.exists() else "?"
+        pid = datos_oido()[0] or "?"
         print(f"oído en marcha (pid {pid}) · {'en pausa' if cfg.get('pausa') else 'escuchando'}"
               f" · nombre «{cfg['nombre']}» · ventana {cfg['ventana']} s · modelo {cfg['modelo']}")
     else:
@@ -149,10 +174,11 @@ def estado() -> None:
 
 
 def parar() -> None:
+    pid = datos_oido()[0]
     try:
-        os.kill(int(OIDO_PID.read_text(encoding="utf-8")), signal.SIGTERM)
+        os.kill(pid, signal.SIGTERM)
         print("oído parado")
-    except (OSError, ValueError):
+    except (OSError, TypeError):
         print("el oído no está en marcha")
 
 

@@ -1,3 +1,8 @@
+---
+name: io-proyectos
+description: Encontrar un proyecto del usuario (thereisnospoon, greedisgood) y ver su estado, rama y cambios. Úsala cuando mencione «el proyecto de X» o pida abrir o revisar uno.
+---
+
 # Guía: proyectos
 
 - `narrador proyectos` lista los proyectos de `~/Documentos/thereisnospoon` y `~/Documentos/greedisgood`, del más reciente al más antiguo, con su rama y su última sesión. `--git` añade los cambios sin confirmar y `--todos` quita el límite de 25.

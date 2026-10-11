@@ -44,11 +44,13 @@ CONFIG_DEFECTO = {
     "destino": None,  # salida de pw-play (node.name); None = la salida por defecto del sistema
     "piper": {"voz": "es_ES-davefx-medium", "velocidad": 1.1},
     "edge": {"voz": "es-MX-DaliaNeural", "velocidad": 0},
+    "kokoro": {"voz": "ef_dora", "velocidad": 1.0, "tono": 1.0},  # voces en español: ef_dora, em_alex, em_santa
     "spd": {"idioma": "es", "velocidad": 10},
     "escucha": {
         "pausa": False,
         "nombre": "Ío",  # palabra que le despierta
-        "ventana": 45,  # s en los que se le puede hablar sin nombrarle tras su última frase
+        "ventana": 90,  # s en los que se le puede hablar sin nombrarle tras lo último que dijo o hizo
+        "aviso_descarte": True,  # un tono suave cuando descarta una frase por no oír su nombre
         "modelo": "small",  # modelo de faster-whisper
         "interrumpir": True,  # hablar mientras Ío habla le corta (solo con cascos)
         "microfono": None,  # entrada de pw-record (node.name); None = la de por defecto
@@ -59,6 +61,11 @@ CONFIG_DEFECTO = {
 def ruta_socket(nombre: str = "narrador") -> Path:
     base = os.environ.get("XDG_RUNTIME_DIR") or "/tmp"
     return Path(base) / f"{nombre}-{os.getuid()}.sock"
+
+
+def ruta_transcript(cwd: str | Path, sesion: str) -> Path:
+    """Dónde guarda Claude Code el transcript de una sesión abierta en `cwd`."""
+    return PROYECTOS_CLAUDE / re.sub(r"[^A-Za-z0-9]", "-", str(cwd)) / f"{sesion}.jsonl"
 
 
 def binario_claude() -> str | None:

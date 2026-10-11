@@ -1,8 +1,8 @@
 {
   "name": "narrador",
   "displayName": "Mentor por voz",
-  "version": "0.2.0",
-  "description": "Ío, tu asistente personal por voz sobre Claude Code: gestiona tus sesiones y proyectos, el escritorio, la agenda y el correo, te escucha siempre y te hace de mentor. Todo local (Piper, faster-whisper).",
+  "version": "0.2.2",
+  "description": "Ío, tu asistente personal por voz sobre Claude Code: gestiona tus sesiones y proyectos, el escritorio, la agenda y el correo, te escucha siempre y te hace de mentor. Voz y oído locales (Kokoro, Piper, faster-whisper).",
   "author": { "name": "seppuq" },
   "license": "MIT",
   "keywords": ["voz", "tts", "narrador", "youtuber"]

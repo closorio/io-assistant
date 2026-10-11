@@ -19,7 +19,7 @@ from visor import PROPIA, hace, metadatos_cwd, recortar
 MARCAS = {".git", "CLAUDE.md", "package.json", "pyproject.toml", "composer.json", "requirements.txt",
           "go.mod", "Cargo.toml", "docker-compose.yml", "compose.yaml"}
 IGNORAR = {"node_modules", "Archivado", "venv", ".venv", "__pycache__", "dist", "build", "vendor"}
-GUIAS = RAIZ / "io" / "guias"
+GUIAS = RAIZ / "skills"  # las guías son las skills io-<tema>; `narrador guia` es el respaldo
 CASA = str(Path.home())
 
 
@@ -176,12 +176,30 @@ def _guardar(lista: list[dict]) -> None:
     TRABAJADORES.write_text(json.dumps(lista[-50:], ensure_ascii=False, indent=1), encoding="utf-8")
 
 
-def lanzar(proyecto: str, tarea: str, modelo: str | None = None) -> None:
+PLANTILLA_CONTRATO = """{tarea}
+
+--- Contrato del encargo (de Ío) ---
+- No toques nada que no pida la tarea. No hagas commits ni `git push` ni envíes nada fuera.
+- Comprueba lo que hagas (ejecuta las pruebas si las hay).
+- Al terminar, escribe en el archivo {ruta} (créalo) lo siguiente: primero, un resumen de 5 líneas como mucho, en español llano
+  y sin código, apto para leerse en voz alta (qué hiciste y si funcionó); después, una lista de lo que queda pendiente y de lo que falló.
+- Tu última respuesta repite ese resumen."""
+
+
+def _archivo_resultado(nombre: str) -> Path:
+    return RUNTIME / "trabajadores" / f"{nombre}.md"
+
+
+def lanzar(proyecto: str, tarea: str, modelo: str | None = None, contrato: bool = False) -> None:
     ruta = resolver_proyecto(proyecto)
     nombre = f"io-{re.sub(r'[^a-z0-9]+', '-', ruta.name.lower()).strip('-')[:24]}-{time.strftime('%H%M%S')}"
+    original = tarea
+    if contrato:
+        _archivo_resultado(nombre).parent.mkdir(parents=True, exist_ok=True)
+        tarea = PLANTILLA_CONTRATO.format(tarea=tarea, ruta=_archivo_resultado(nombre))
     comunes = ["--permission-mode", "auto"] + (["--model", modelo] if modelo else [])
     entorno = dict(os.environ, NARRADOR_IO="1")
-    registro = {"nombre": nombre, "ruta": str(ruta), "tarea": tarea, "modelo": modelo, "inicio": time.time()}
+    registro = {"nombre": nombre, "ruta": str(ruta), "tarea": original, "contrato": contrato, "modelo": modelo, "inicio": time.time()}
     r = subprocess.run([claude(), "--bg", "--name", nombre, *comunes, tarea], cwd=ruta, env=entorno,
                        capture_output=True, text=True, timeout=90)
     salida = (r.stdout + r.stderr).strip()
@@ -245,6 +263,11 @@ def lista_trabajadores() -> None:
             estado, sesion, resultado = a.get("status", "desconocido"), a.get("sessionId", ""), ""
         else:
             (estado, resultado), sesion = _estado_p(t), t.get("session_id", "")
+        if not resultado and t.get("contrato"):
+            try:
+                resultado = recortar(" ".join(_archivo_resultado(t["nombre"]).read_text(encoding="utf-8").split()), 160)
+            except OSError:
+                pass
         print(f"{t['nombre']}  {estado}  hace {hace(ahora - t['inicio'])}  {corta(t['ruta'])}"
               f"\n    tarea: «{recortar(t['tarea'], 80)}»" + (f"  sesión {sesion[:8]}" if sesion else "")
               + (f"\n    resultado: {resultado}" if resultado else ""))
@@ -267,7 +290,7 @@ def abrir(nombre: str) -> None:
 
 
 def trabajador(args: list[str]) -> None:
-    uso = "uso: narrador trabajador lanzar PROYECTO \"TAREA\" [--modelo opus] | lista | abrir NOMBRE"
+    uso = "uso: narrador trabajador lanzar PROYECTO \"TAREA\" [--modelo opus] [--contrato] | lista | abrir NOMBRE"
     if not args or args[0] == "lista":
         lista_trabajadores()
     elif args[0] == "lanzar" and len(args) >= 3:
@@ -277,7 +300,9 @@ def trabajador(args: list[str]) -> None:
             i = resto.index("--modelo")
             modelo = resto[i + 1] if i + 1 < len(resto) else None
             resto = resto[:i] + resto[i + 2:]
-        lanzar(resto[0], " ".join(resto[1:]), modelo)
+        contrato = "--contrato" in resto
+        resto = [a for a in resto if a != "--contrato"]
+        lanzar(resto[0], " ".join(resto[1:]), modelo, contrato)
     elif args[0] == "abrir" and len(args) == 2:
         abrir(args[1])
     else:
@@ -312,11 +337,14 @@ def recordar(minutos: str, texto: str) -> None:
 
 
 def guia(tema: str | None) -> None:
-    disponibles = sorted(p.stem for p in GUIAS.glob("*.md"))
+    disponibles = sorted(p.parent.name.removeprefix("io-") for p in GUIAS.glob("io-*/SKILL.md"))
     if not tema:
         print("guías: " + ", ".join(disponibles) + "  (narrador guia TEMA)")
         return
-    archivo = GUIAS / f"{tema}.md"
+    archivo = GUIAS / f"io-{tema}" / "SKILL.md"
     if not archivo.exists():
         raise SystemExit(f"no hay guía «{tema}»; hay: {', '.join(disponibles)}")
-    print(archivo.read_text(encoding="utf-8"))
+    texto = archivo.read_text(encoding="utf-8")
+    if texto.startswith("---"):
+        texto = texto.split("---", 2)[2].lstrip("\n")
+    print(texto)
