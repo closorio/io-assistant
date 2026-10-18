@@ -1,0 +1,36 @@
+{
+ "tenants": {"buscasa": "buscasa", "eurotalent": "eurotalent", "loyal-services": "loyal", "marlovet": "marlovet", "vindam": "vindam"},
+ "resultados": [
+  {"check": "n8n", "ambito": "buscasa", "estado": "verde", "valor": "210 ms", "detalle": "healthz OK en 210 ms", "ms": 210},
+  {"check": "wf_activo", "ambito": "buscasa", "estado": "verde", "valor": "activo", "detalle": "2 workflow(s) activos"},
+  {"check": "ejecuciones", "ambito": "buscasa", "estado": "verde", "valor": "sin errores en 24 h; última hace 2.1 h", "detalle": "sin errores en 24 h; última hace 2.1 h"},
+  {"check": "chatwoot", "ambito": "buscasa", "estado": "verde", "valor": "180 ms; 0 sin asignar", "detalle": "profile OK en 180 ms; 0 abiertas sin asignar"},
+  {"check": "supabase", "ambito": "buscasa", "estado": "verde", "valor": "140 ms", "detalle": "tabla propiedades: 312 filas en 140 ms"},
+  {"check": "meta_numero", "ambito": "buscasa", "estado": "verde", "valor": "connected, calidad green", "detalle": "número CONNECTED, calidad GREEN"},
+  {"check": "meta_token", "ambito": "buscasa", "estado": "verde", "valor": "permanente", "detalle": "token sin caducidad"},
+  {"check": "tls", "ambito": "buscasa", "estado": "verde", "valor": "ainmo-n8n vence en 61 días", "detalle": "ainmo-n8n.vindam.com: vence en 61 días"},
+  {"check": "n8n", "ambito": "eurotalent", "estado": "verde", "valor": "330 ms", "detalle": "healthz OK en 330 ms"},
+  {"check": "wf_activo", "ambito": "eurotalent", "estado": "verde", "valor": "activo", "detalle": "2 workflow(s) activos"},
+  {"check": "ejecuciones", "ambito": "eurotalent", "estado": "ambar", "valor": "3 error(es) en 24 h; última hace 0.4 h", "detalle": "3 error(es) en 24 h; última hace 0.4 h (umbral de silencio 12 h)"},
+  {"check": "tls", "ambito": "eurotalent", "estado": "ambar", "valor": "eurotalent-n8n vence en 20 días", "detalle": "eurotalent-n8n.vindam.com: vence en 20 días"},
+  {"check": "env_permisos", "ambito": "eurotalent", "estado": "ambar", "valor": ".env en 664", "detalle": ".env debería tener permisos 600 (chmod 600)"},
+  {"check": "n8n", "ambito": "loyal-services", "estado": "verde", "valor": "250 ms", "detalle": "healthz OK en 250 ms"},
+  {"check": "ejecuciones", "ambito": "loyal-services", "estado": "verde", "valor": "sin errores en 24 h; última hace 5.0 h", "detalle": "sin errores en 24 h; última hace 5.0 h"},
+  {"check": "supabase", "ambito": "loyal-services", "estado": "verde", "valor": "120 ms", "detalle": "tabla catalogo_loyalsvc: 88 filas en 120 ms"},
+  {"check": "n8n", "ambito": "marlovet", "estado": "rojo", "valor": "no responde", "detalle": "healthz: TimeoutError (6000 ms)", "ms": 6000},
+  {"check": "supabase", "ambito": "marlovet", "estado": "verde", "valor": "150 ms", "detalle": "tabla marlovet_catalogo: 40 filas en 150 ms"},
+  {"check": "n8n", "ambito": "vindam", "estado": "verde", "valor": "200 ms", "detalle": "healthz OK en 200 ms"},
+  {"check": "wf_activo", "ambito": "vindam", "estado": "verde", "valor": "activo", "detalle": "2 workflow(s) activos"},
+  {"check": "ejecuciones", "ambito": "vindam", "estado": "verde", "valor": "sin errores en 24 h; última hace 1.0 h", "detalle": "sin errores en 24 h; última hace 1.0 h"},
+  {"check": "openai_clave", "ambito": "vindam", "estado": "verde", "valor": "clave válida", "detalle": "clave válida; clave local del tenant"},
+  {"check": "vps", "ambito": "global", "estado": "na", "valor": "desactivado", "detalle": "activa ssh en parte.json"},
+  {"check": "correo", "ambito": "global", "estado": "na", "valor": "por conector", "detalle": "imap_tech=false"}
+ ],
+ "pendientes": [
+  {"tenant": "vindam", "texto": "Citas reales: falta la credencial OAuth de Google Calendar", "dias": 4, "archivo": "CLAUDE.md"},
+  {"tenant": "marlovet", "texto": "QVET no crea citas; alta WABA de la línea real", "dias": 2, "archivo": "CLAUDE.md"},
+  {"tenant": "eurotalent", "texto": "Matriz país→asesor pendiente del cliente", "dias": 0, "archivo": "docs/PASO_A_PASO_pendientes.md"}
+ ],
+ "trabajadores": [{"nombre": "io-mundo-simulado-193643", "resumen": "F7.6c terminada: política semilla 0 fijada como oficial."}],
+ "correos": []
+}

@@ -12,10 +12,14 @@
   narrador seguir [ID]       (visor: un resumen por turno de esa sesión, de cualquier proyecto)
   narrador escuchar [--dueño io|mentor]   (oído: entrega lo que le dices a Ío; lo usa Monitor)
   narrador escucha [estado|pausa|activar|alternar|parar]
+  narrador escucha interna [activar|desactivar|alternar|estado]   (oye también lo que suena en el equipo, como [voz-equipo])
+  narrador huella [grabar [SEGUNDOS]|probar|estado|borrar]   (huella de tu voz: filtra vídeos y otras voces)
   narrador proyectos [--todos] [--git]
   narrador trabajador lanzar PROYECTO "TAREA" [--modelo opus] [--contrato] | lista | abrir NOMBRE
   narrador recordar MINUTOS TEXTO
   narrador guia [TEMA]       (guías de Ío: sesiones, proyectos, escritorio, personal, mentor)
+  narrador parte [--json|--md|--forzar|--solo A,B|--tenant T|--entregado|--simular|--estado]   (parte matinal: salud de producción y pendientes, solo lectura)
+  narrador memoria revisar [--json] | indices | buscar PALABRAS | informes | guardar [MENSAJE] [--auto]   (memoria de Ío: vault de notas)
 """
 
 import json
@@ -30,6 +34,7 @@ from comun import (  # noqa: E402
 from visor import listar, listar_todas, seguir  # noqa: E402
 import asistente  # noqa: E402
 import escucha  # noqa: E402
+import parte_matinal  # noqa: E402
 
 PRUEBA = "¡Buenas! Soy Ío. Si me estás oyendo, la voz funciona."
 
@@ -200,6 +205,12 @@ def main(args: list[str]) -> None:
             pass
     elif cmd == "escucha":
         escucha.main(resto)
+    elif cmd == "huella":  # necesita numpy y sherpa-onnx: se ejecuta con el python del venv
+        raiz = Path(__file__).resolve().parent.parent / "scripts"
+        venv = Path.home() / ".local/share/narrador/venv/bin/python"
+        sys.exit(subprocess.call([str(venv), "-I", "-c",
+                                  f"import sys; sys.path.insert(0, {str(raiz)!r}); import huella; huella.main(sys.argv[1:])",
+                                  *resto]))
     elif cmd == "salidas":
         salidas()
     elif cmd == "salida" and resto:
@@ -214,6 +225,11 @@ def main(args: list[str]) -> None:
         asistente.aviso(" ".join(resto))
     elif cmd == "guia":
         asistente.guia(resto[0] if resto else None)
+    elif cmd == "parte":
+        sys.exit(parte_matinal.main(resto))
+    elif cmd == "memoria":
+        import memoria  # aquí y no arriba: un fallo en memoria.py no debe tumbar la voz ni el oído
+        sys.exit(memoria.main(resto))
     else:
         sys.exit(__doc__.strip())
 

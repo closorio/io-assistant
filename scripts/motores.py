@@ -85,12 +85,23 @@ class Kokoro(Motor):
             raise FileNotFoundError("faltan los archivos de Kokoro (ejecuta scripts/instalar.sh)")
         self.modelo = Modelo(str(modelo), str(voces))
 
+    def _voz(self, voz):
+        """Una voz por nombre, o una mezcla: «if_sara:0.5+af_heart:0.5» (pesos opcionales, se normalizan)."""
+        if "+" not in voz:
+            return voz
+        partes = []
+        for trozo in voz.split("+"):
+            nombre, _, peso = trozo.partition(":")
+            partes.append((nombre.strip(), float(peso) if peso else 1.0))
+        total = sum(p for _, p in partes)
+        return sum(self.modelo.get_voice_style(n) * (p / total) for n, p in partes)
+
     def preparar(self, texto):
         import numpy as np
 
         k = self.cfg["kokoro"]
         velocidad = max(0.5, min(float(k.get("velocidad") or 1.0), 2.0))
-        muestras, tasa = self.modelo.create(texto, voice=k["voz"], speed=velocidad, lang="es")
+        muestras, tasa = self.modelo.create(texto, voice=self._voz(k["voz"]), speed=velocidad, lang="es")
         ruta = _wav_temporal()
         with wave.open(str(ruta), "wb") as wav:
             wav.setnchannels(1)

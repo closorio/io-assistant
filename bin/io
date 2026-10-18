@@ -16,6 +16,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 from comun import IO_JSON, IO_LOCK, RUNTIME, binario_claude, enviar_arrancando  # noqa: E402
+try:
+    from parte_matinal import frase_arranque  # noqa: E402  (parte matinal: solo añade un punto al arranque)
+except Exception:  # nunca impide arrancar a Ío
+    def frase_arranque() -> str:
+        return ""
 
 CARPETA = Path.home() / "Documentos"
 MONITOR = ("lanza Monitor con la orden `narrador escuchar --dueño io`, la descripción "
@@ -56,10 +61,10 @@ def main(args: list[str]) -> int:
         anterior = {}
     if "--continuar" in args and anterior.get("ultima"):
         sesion = anterior["ultima"]
-        extra = ["--resume", sesion, RETOMAR]
+        extra = ["--resume", sesion, RETOMAR + frase_arranque()]
     else:
         sesion = str(uuid.uuid4())
-        extra = ["--session-id", sesion, ARRANQUE]
+        extra = ["--session-id", sesion, ARRANQUE + frase_arranque()]
     IO_JSON.write_text(json.dumps({"session_id": sesion, "pid": os.getpid(), "inicio": time.time(),
                                    "ultima": sesion}), encoding="utf-8")
     orden = [claude, "--agent", "narrador:io", "--permission-mode", "auto", "--name", "Ío", *extra]

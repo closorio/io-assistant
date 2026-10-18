@@ -1,7 +1,9 @@
 """Lado ligero del oído: arrancarlo, entregar sus frases al mentor y controlar la pausa.
 
 `narrador escuchar` es lo que corre dentro de Monitor: da latido para que el oído siga vivo,
-y por cada frase dirigida a Ío imprime una línea `[voz] …`. Solo biblioteca estándar.
+y por cada frase dirigida a Ío imprime una línea `[voz] …`. Con la escucha interna activada,
+lo que suena en el equipo (reuniones, vídeos) llega como `[voz-equipo] …`: contexto, nunca órdenes.
+Solo biblioteca estándar.
 """
 
 import fcntl
@@ -69,6 +71,8 @@ def formato(registro: dict) -> str:
         return f"[voz] (te escucho; empieza la frase por «{registro.get('nombre', 'Ío')}» para hablarme)"
     if evento == "error":
         return f"[voz] error: {registro.get('detalle', 'desconocido')}"
+    if "equipo" in registro:
+        return f"[voz-equipo] {registro['equipo']}"
     if registro.get("confirmacion"):
         return (f"[voz] (respuesta a una confirmación: «{registro.get('texto', '')}». "
                 "El sistema ya la ha aplicado: no hagas nada con ella)")
@@ -163,14 +167,30 @@ def pausar(pausa: bool | None) -> None:
     decir("Dejo de escucharte." if nueva else "Te escucho.")
 
 
+def interna(accion: str) -> None:
+    """Escucha interna: además de tu voz, transcribe lo que suena en el equipo (el monitor de la salida)."""
+    cfg = leer_config()
+    actual = bool(cfg["escucha"].get("interna"))
+    if accion == "estado":
+        print(f"escucha interna {'activada: también oigo lo que suena en el equipo' if actual else 'desactivada: solo tu voz'}")
+        return
+    nueva = {"activar": True, "desactivar": False, "alternar": not actual}[accion]
+    cfg["escucha"]["interna"] = nueva
+    guardar_config(cfg)
+    print("escucha interna activada" if nueva else "escucha interna desactivada")
+    decir("Escucha interna activada." if nueva else "Escucha interna desactivada.")
+
+
 def estado() -> None:
     cfg = leer_config()["escucha"]
+    interna_txt = "escucha interna " + ("activada" if cfg.get("interna") else "desactivada")
     if oido_en_marcha():
         pid = datos_oido()[0] or "?"
         print(f"oído en marcha (pid {pid}) · {'en pausa' if cfg.get('pausa') else 'escuchando'}"
-              f" · nombre «{cfg['nombre']}» · ventana {cfg['ventana']} s · modelo {cfg['modelo']}")
+              f" · nombre «{cfg['nombre']}» · ventana {cfg['ventana']} s · modelo {cfg['modelo']} · {interna_txt}")
     else:
-        print(f"oído parado (lo arranca Ío o /narrador:mentor) · {'en pausa' if cfg.get('pausa') else 'activo'}")
+        print(f"oído parado (lo arranca Ío o /narrador:mentor) · {'en pausa' if cfg.get('pausa') else 'activo'}"
+              f" · {interna_txt}")
 
 
 def parar() -> None:
@@ -182,8 +202,17 @@ def parar() -> None:
         print("el oído no está en marcha")
 
 
+USO = "uso: narrador escucha [estado|pausa|activar|alternar|parar|interna [activar|desactivar|alternar|estado]]"
+
+
 def main(args: list[str]) -> None:
     accion = args[0] if args else "estado"
+    if accion == "interna":
+        sub = args[1] if len(args) > 1 else "estado"
+        if sub not in ("activar", "desactivar", "alternar", "estado"):
+            sys.exit(USO)
+        interna(sub)
+        return
     acciones = {
         "estado": estado,
         "pausa": lambda: pausar(True),
@@ -192,5 +221,5 @@ def main(args: list[str]) -> None:
         "parar": parar,
     }
     if accion not in acciones:
-        sys.exit("uso: narrador escucha [estado|pausa|activar|alternar|parar]")
+        sys.exit(USO)
     acciones[accion]()

@@ -50,10 +50,16 @@ CONFIG_DEFECTO = {
         "pausa": False,
         "nombre": "Ío",  # palabra que le despierta
         "ventana": 90,  # s en los que se le puede hablar sin nombrarle tras lo último que dijo o hizo
+        "agrupar": 1.5,  # s de calma tras tu última frase para entregar a Ío todo junto como un párrafo (0 = frase a frase)
+        "agrupar_max": 25,  # s máximos que se retiene un párrafo en formación
+        "corte": 0.25,  # s de tu voz sobre la de Ío para cortarle (más = menos cortes falsos por eco)
+        "silencio_fin": 0.8,  # s de silencio para dar una frase por terminada (más = te deja pensar entre frases)
         "aviso_descarte": True,  # un tono suave cuando descarta una frase por no oír su nombre
         "modelo": "small",  # modelo de faster-whisper
-        "interrumpir": True,  # hablar mientras Ío habla le corta (solo con cascos)
+        "interrumpir": True,  # hablar mientras Ío habla le corta, solo si la huella confirma que eres tú
         "microfono": None,  # entrada de pw-record (node.name); None = la de por defecto
+        "interna": False,  # escucha interna: además de tu voz, transcribe lo que suena en el equipo ([voz-equipo])
+        "monitor": None,  # salida cuyo monitor oye la escucha interna (node.name); None = la de por defecto
     },
 }
 

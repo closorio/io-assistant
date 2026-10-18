@@ -4,7 +4,7 @@
 
 - **Asistente (uso principal):** Alt + Shift derecho abre Ío. Ver [Ío, asistente](#ío-asistente).
 - **Mentor:** Ío lo hace cuando se lo pides, y también hay `/narrador:mentor` para una sesión aparte. Un visor resume cada turno de la sesión observada.
-- **Oído:** un daemon escucha el micrófono, detecta cuándo hablas (Silero VAD) y lo transcribe en local (faster-whisper). Solo le llega a Ío lo que va dirigido a él.
+- **Oído:** un daemon escucha el micrófono, detecta cuándo hablas (Silero VAD) y lo transcribe en local (faster-whisper). Solo le llega a Ío lo que va dirigido a él, y con la huella de voz, solo lo que dices tú. Con la escucha interna oye también lo que suena en el equipo (una reunión), marcado aparte.
 - **Voz:** un hook `MessageDisplay` recoge las líneas que empiezan por `🎙️` y un daemon las lee en voz alta. Por defecto con Kokoro (voz Dora), en local; Piper y spd-say son los respaldos. No usa servicios de pago. Edge TTS está disponible como opción, pero va por internet.
 - **Narrador (la idea original, opcional):** el output style `Narrador` hace que la misma sesión en la que trabajas narre lo que hace.
 
@@ -32,7 +32,7 @@ Después, en VS Code, recarga la ventana (`Developer: Reload Window`).
 **Qué es:** una sesión de Claude Code con el agente `narrador:io`, definido en [agents/io.md](agents/io.md):
 - **Modelo:** Sonnet 5.5.
 - **Permisos:** modo `auto`. El clasificador de Claude Code deja pasar lo normal; lo que necesita permiso aparece en su terminal y Ío te avisa por voz.
-- **Memoria propia** entre sesiones.
+- **Memoria propia** entre sesiones: un vault de notas (ver «Memoria de Ío» más abajo).
 - **Al arrancar** se pone a escucharte y te saluda.
 
 **Qué le puedes pedir** (cada capacidad tiene una guía que Ío lee cuando la necesita, `bin/narrador guia TEMA`):
@@ -44,6 +44,7 @@ Después, en VS Code, recarga la ventana (`Developer: Reload Window`).
 | `escritorio` | «Abre el repo en VS Code», «recuérdame en 20 minutos llamar a Leo», «baja el volumen» |
 | `personal` | «¿Qué tengo hoy?», «¿algún correo importante?», «prepárame un borrador para…». Necesita los conectores de claude.ai conectados |
 | `mentor` | «Vigila la sesión de holo-ui y coméntamela» |
+| `memoria` | «Recuerda que prefiero…», «¿qué decidimos sobre…?», «revisa tu memoria» |
 
 **Trabajadores:** para trabajo largo en un proyecto, Ío lanza `claude --bg` en esa carpeta, con su `CLAUDE.md` y sus skills. Si esa carpeta concreta no es de confianza, usa `claude -p`, sin interfaz: lo que necesite permiso se le deniega y lo cuenta en su resultado. Sigue el avance y te avisa al terminar. `bin/narrador trabajador lista` y `bin/narrador trabajador abrir NOMBRE` los muestran.
 
@@ -51,26 +52,57 @@ Después, en VS Code, recarga la ventana (`Developer: Reload Window`).
 
 **Ío o `/narrador:mentor`, no los dos a la vez:** el oído entrega tus frases a una sola sesión. La segunda que lo intente recibe «ya te escucha Ío».
 
+### Memoria de Ío
+
+La memoria de Ío (`memory: user` en `agents/io.md`) vive donde Claude Code la fija, `~/.claude/agent-memory/narrador-io/`, y `~/Documentos/io-memoria` es un enlace para abrirla en Obsidian («Abrir carpeta como vault», solo con plugins del núcleo). Es un vault de notas en carpetas (`usuario/`, `reglas/`, `proyectos/`, `decisiones/`, `personas/`, `trabajadores/`, `aprendizaje/`, `referencias/`, `_archivo/`), cada una con frontmatter fijo y un `_indice.md` generado; `MEMORY.md` es el índice que Claude Code inyecta al arrancar y `ram.md` la memoria de trabajo. Es un repo git local sin remoto (la etiqueta `pre-vault` guarda el estado anterior a la migración del 2026-10-17). Reglas y formato: el `README.md` del vault y la skill [io-memoria](skills/io-memoria/SKILL.md). Herramientas: `narrador memoria revisar | indices | buscar | informes | guardar | evaluar` ([scripts/memoria.py](scripts/memoria.py)). Los informes de los trabajadores no entran en el vault: Ío destila de ellos un digest de hechos en `trabajadores/`.
+
 ## Mentor por voz en una sesión aparte
 
 1. Trabaja en tu sesión de siempre, la **ejecutora**, sin estilo de voz.
 2. Abre otra sesión de Claude Code **en el mismo proyecto** (otra pestaña de VS Code u otra terminal) y escribe `/narrador:mentor`. Si tienes varias sesiones abiertas, te preguntará cuál observar; `/narrador:mentor sesiones` las lista y `/narrador:mentor ID` elige una.
 3. **Para hablarle, empieza la frase por «Ío»**: «Ío, ¿por qué ha cambiado eso?». Mientras dura la conversación puedes seguir sin nombrarle: mientras Ío habla o trabaja, y hasta 90 s después. Pasado ese tiempo, si le hablas sin nombrarle, suena un tono suave y descendente: es que tienes que empezar por «Ío».
-4. **Para interrumpirle, háblale**: a los ~250 ms de oírte se calla. Solo tiene sentido con cascos; con altavoces, pon `escucha.interrumpir` a `false`, o se cortaría a sí mismo.
+4. **Para interrumpirle, háblale**: a los ~250 ms de oírte (`escucha.corte`) comprueba con la huella de voz que eres tú y se calla. Sin huella, o si la voz no es la tuya (su propio eco, un vídeo), no se corta; tu frase le llega igual. Funciona mejor con cascos; si no quieres que te corte nunca a media frase, pon `escucha.interrumpir` a `false`. Escribir en su terminal también le calla; los avisos que le llegan solos (Monitor, tareas que terminan) no.
 5. **Super+I** pausa o reanuda la escucha (cierra el micrófono). Lo confirma en voz alta.
+6. **Avisos sonoros** (tonos cortos y suaves):
+   - Dos notas que suben: Ío ya tiene lo que le has dicho.
+   - Dos notas que bajan: te ha oído, pero no le has nombrado.
+   - Tres notas que bajan: se ha cerrado la conversación; para seguir, vuelve a empezar por «Ío».
+   - Tres notas que suben o bajan justo después de decir «escucha interna…»: activada o desactivada.
+
+### Huella de voz
+
+Con la huella, el oído solo deja pasar lo que suena a tu voz: un vídeo, una reunión por altavoces o alguien que habla a tu lado no se cuelan como órdenes. Todo es local. La huella es un vector de números, no tu audio, y se guarda en `huella.npy`, legible solo por ti. Sale de un modelo ONNX pequeño. Necesita `sherpa-onnx` en el venv y el modelo en `~/.local/share/narrador/modelos/wespeaker_resnet34.onnx`, que es `wespeaker_en_voxceleb_resnet34.onnx` de las versiones de sherpa-onnx en GitHub. `scripts/instalar.sh` todavía no instala ninguno de los dos.
+
+- `bin/narrador huella grabar [SEGUNDOS]`: lee algo en voz alta durante 75 s, sin nada sonando. Mientras graba, el oído se pone en pausa.
+- `bin/narrador huella probar`: di algo o pon un vídeo, y muestra el parecido con tu huella (1 = igual).
+- `bin/narrador huella estado` / `borrar`.
+
+`escucha.huella_umbral` fija el parecido mínimo (0,5). Las frases tuyas largas suelen dar 0,7–0,9; las muy cortas, menos.
+
+### Escucha interna
+
+Para que Ío oiga también una reunión o lo que suena en el equipo, activa la escucha interna. Hay tres formas:
+- Pulsar **Mayús+Super+I**, que lo confirma en voz alta.
+- Decir «escucha interna activada» o «escucha interna desactivada», sin nombrar a Ío.
+- `bin/narrador escucha interna activar|desactivar|alternar|estado`.
+
+- **Activada:** además del micrófono, el oído graba el monitor de la salida de audio (lo que suena, sin pasar por el aire) y lo transcribe. Le llega a Ío como `[voz-equipo] …`, que **nunca cuenta como orden**: no despierta a Ío aunque le nombren, no abre la conversación, no le corta y no cambia la escucha. Lo que coincide con la voz de Ío se descarta, para que no se oiga a sí mismo. Tu voz sigue llegando por el micrófono como siempre, con la huella.
+- **Desactivada** (por defecto): solo el micrófono, y con la huella, solo tu voz.
+- **Coste:** cada línea `[voz-equipo]` es un turno de Ío. En una reunión larga, actívala solo cuando quieras que Ío la siga.
 
 Lo que conviene saber:
 
-- **Latencia:** entre que te callas y empieza a contestar pasan unos 5–8 s: 0,8 s para saber que has terminado, ~1,5 s de transcripción y el resto es el modelo pensando. Es una conversación por turnos, no una llamada.
+- **Latencia:** entre que te callas y empieza a contestar pasan unos 5–8 s. Son `escucha.silencio_fin` (0,8 s por defecto) para saber que has terminado, ~1,5 s de transcripción y `escucha.agrupar` (1,5 s) por si sigues hablando. El resto es el modelo pensando. Es una conversación por turnos, no una llamada.
+- **Párrafos:** si haces pausas mientras piensas, las frases seguidas se juntan y le llegan a Ío como un solo mensaje cuando llevas `agrupar` s sin hablar. Con `silencio_fin` 1,8 y `agrupar` 1,5 aguanta pausas de unos 4–5 s. Si hablas más de 30 s seguidos, corta en la pausa más clara de los últimos 3 s, no a mitad de palabra.
 - **Coste:** Ío despierta una vez por turno de la ejecutora y una vez por cada frase que le diriges; nunca por tiempo, ni por herramienta, ni por lo que hablas con otros (eso se descarta en local sin llegar al modelo). Lee resúmenes de pocas líneas, no el transcript. Para gastar menos, pon Sonnet o Haiku en su sesión (`/model`), y usa `/compact` o reinícialo en sesiones largas.
-- **Privacidad:** el audio no sale del equipo. El micrófono solo está abierto mientras hay un mentor escuchando (se cierra a los 2 min de cerrarlo) y nunca en pausa. El log guarda lo que le dijiste a Ío, no lo demás.
+- **Privacidad:** el audio no sale del equipo. El micrófono solo está abierto mientras hay un mentor escuchando (se cierra a los 2 min de cerrarlo) y nunca en pausa. El monitor de la salida, solo con la escucha interna activada. El log guarda lo que le dijiste a Ío, no lo demás; de lo que suena en el equipo solo apunta cuántas palabras eran. El texto sí llega a la sesión de Ío.
 - **Si no te entiende «Ío»:** di el nombre al principio y con una pausa breve. Whisper a veces lo escribe mal; dentro de la conversación da igual.
 - **No toca el proyecto:** puede leer código para fundamentar lo que dice, pero no edita ni ejecuta nada que cambie algo.
 - **Una sola voz:** no actives el estilo Narrador en la ejecutora, o las dos sesiones hablarán por la misma cola.
 - **Escribir en la ejecutora no corta al mentor:** cada sesión solo calla lo que dijo ella misma.
 - **Con `/clear` en la ejecutora**, el visor salta solo a la sesión nueva, salvo que lo hayas fijado con un ID.
 
-El visor y el oído también se pueden usar a mano: `bin/narrador sesiones`, `bin/narrador seguir [ID]`, `bin/narrador escuchar` y `bin/narrador escucha [estado|pausa|activar|alternar|parar]`.
+El visor y el oído también se pueden usar a mano: `bin/narrador sesiones`, `bin/narrador seguir [ID]`, `bin/narrador escuchar`, `bin/narrador escucha [estado|pausa|activar|alternar|parar]`, `bin/narrador escucha interna [activar|desactivar|alternar|estado]` y `bin/narrador huella …`.
 
 ## Narrador en la misma sesión (opcional)
 
@@ -92,7 +124,7 @@ Activa el estilo: menú `/`, luego **Output styles**, luego **Narrador**. En ter
 | `velocidad N` | Cambia la velocidad |
 | `tono épico\|tranquilo\|didáctico\|entusiasta` | Cambia el tono |
 
-**Desde la terminal**, la misma CLI: `bin/narrador estado | silencio | activar | saltar | vaciar | prueba | parar | voces | decir TEXTO | motor M | voz V | velocidad N | salidas | salida TEXTO|defecto | sesiones | seguir [ID] | escuchar | escucha …`.
+**Desde la terminal**, la misma CLI: `bin/narrador estado | silencio | activar | saltar | vaciar | prueba | parar | voces | decir TEXTO | motor M | voz V | velocidad N | salidas | salida TEXTO|defecto | sesiones | seguir [ID] | escuchar | escucha … | huella …`.
 
 Cuando escribes un mensaje en una sesión, su voz se calla y descarta lo que tenía pendiente.
 
@@ -129,10 +161,17 @@ No existe hasta el primer cambio con la CLI; mientras tanto se usan los valores 
 | `escucha.nombre` | Palabra que despierta a Ío (`Ío`) |
 | `escucha.ventana` | Segundos de conversación sin tener que nombrarle, contados desde lo último que Ío dijo o hizo (90) |
 | `escucha.aviso_descarte` | `true` para oír un tono cuando descarta una frase por no oír su nombre |
-| `escucha.interrumpir` | `true` para cortarle hablando; solo con cascos |
+| `escucha.interrumpir` | `true` para cortarle hablando, solo si la huella confirma que eres tú; mejor con cascos |
 | `escucha.pausa` | Micrófono cerrado (Super+I lo alterna) |
 | `escucha.modelo` | Modelo de faster-whisper: `small` (~1,5 s por frase); `base` es 3 veces más rápido pero entiende bastante peor |
 | `escucha.microfono` | Entrada de pw-record (`node.name`); `null` = la del sistema |
+| `escucha.silencio_fin` | Segundos de silencio para dar una frase por terminada (0,8); más, si te corta mientras piensas |
+| `escucha.agrupar` / `escucha.agrupar_max` | Segundos de calma tras tu última frase para entregarle a Ío el párrafo entero (1,5; 0 = frase a frase) y tope de segundos que se retiene un párrafo (25) |
+| `escucha.corte` | Segundos de tu voz sobre la de Ío para cortarle (0,25); más, si se corta solo por eco |
+| `escucha.aviso_recibido` / `escucha.avisos_sonoros` | `false` para quitar el tono de «recibido» / los de «conversación cerrada» y «no te oigo» |
+| `escucha.huella` / `escucha.huella_umbral` | Filtro por tu huella de voz (lo activa `narrador huella grabar`) y parecido mínimo para dejar pasar una frase (0,5) |
+| `escucha.interna` | Escucha interna: oír también lo que suena en el equipo (Mayús+Super+I lo alterna) |
+| `escucha.monitor` | Salida cuyo monitor oye la escucha interna (`node.name`); `null` = la del sistema |
 
 La CLI edita este archivo y avisa al daemon.
 
@@ -142,7 +181,8 @@ La CLI edita este archivo y avisa al daemon.
 sesión ejecutora ──escribe──▶ ~/.claude/projects/<proyecto>/<sesión>.jsonl
                                       │  visor (scripts/visor.py): un resumen por turno
                                       ▼
-micrófono ─▶ oído (scripts/oido.py): Silero VAD → faster-whisper → ¿«Ío» o conversación abierta?
+micrófono ─▶ oído (scripts/oido.py): Silero VAD → faster-whisper → ¿tu huella? ¿«Ío» o conversación abierta?
+monitor de la salida ─▶ (solo con escucha interna) → [voz-equipo], nunca órdenes
                                       │  oido.jsonl → narrador escuchar (scripts/escucha.py)
                                       ▼
 sesión mentora: dos Monitor despiertan a Ío ──▶ "🎙️ Ojo, ese test no cubre…"
@@ -154,7 +194,7 @@ daemon (scripts/daemon.py): cola → motor (scripts/motores.py) → WAV → pw-p
 ```
 
 - **El visor** da un turno por cerrado cuando ve `end_turn` y 2 s de calma. También avisa si la ejecutora te está preguntando algo, si la interrumpes, y cada 3 min en turnos muy largos. Guarda por dónde va en `~/.local/share/narrador/visor/`: cuando Monitor caduca (máximo 30 min) y el mentor lo vuelve a arrancar, sigue sin repetir nada.
-- **El oído** es un daemon aparte, porque carga Whisper y tiene el micrófono abierto. Lo arranca `narrador escuchar`, que le da latido; sin latido durante 2 min se apaga. Da una frase por terminada tras 0,8 s de silencio y descarta ruido, frases cortas y las alucinaciones típicas de Whisper. Mientras Ío habla, la conversación cuenta como abierta.
+- **El oído** es un daemon aparte, porque carga Whisper y tiene el micrófono abierto. Lo arranca `narrador escuchar`, que le da latido; sin latido durante 2 min se apaga. Da una frase por terminada tras `silencio_fin` s de silencio y descarta ruido, frases cortas y las alucinaciones típicas de Whisper. Mientras Ío habla, la conversación cuenta como abierta. Con la escucha interna abre un segundo pw-record sobre el monitor de la salida (`stream.capture.sink`), con su propio VAD. Whisper atiende primero tus frases y después las del equipo.
 - **En VS Code y con `claude -p`**, el hook recibe cada mensaje completo cuando termina. En la terminal interactiva lo recibe por grupos de líneas, mientras Claude escribe.
 - **El daemon** arranca solo con la primera frase y no puede haber dos a la vez (lo impide `~/.local/share/narrador/narrador.lock`, común al repo y a la copia del plugin). Recuerda de qué sesión es cada frase. Se apaga tras 45 min sin actividad, o con `bin/narrador parar`.
 - **El hook nunca escribe en stdout ni falla**: si algo va mal, la frase se pierde sin molestar a Claude.
@@ -169,8 +209,8 @@ skills/mentor/     /narrador:mentor (mentor en una sesión aparte)
 skills/voz/        /narrador:voz
 output-styles/     narrador.md (estilo opcional para narrar en la misma sesión)
 hooks/hooks.json   MessageDisplay y UserPromptSubmit → scripts/hook.py
-scripts/           comun.py, hook.py, daemon.py, motores.py, visor.py, oido.py, escucha.py, asistente.py,
-                   riesgo.py, pretool.py, instalar.sh
+scripts/           comun.py, hook.py, daemon.py, motores.py, visor.py, oido.py, escucha.py, huella.py,
+                   asistente.py, riesgo.py, pretool.py, parte_matinal.py, memoria.py, instalar.sh
 tests/             pruebas de riesgo.py y pretool.py (python3 -m unittest discover -s tests)
 bin/narrador       CLI (en el PATH de Bash mientras el plugin esté activo)
 bin/io             lanzador de Ío (una sola instancia, en ~/Documentos)
@@ -181,6 +221,7 @@ El estado vive fuera del repo, en `${XDG_DATA_HOME:-~/.local/share}/narrador/`: 
 
 Los atajos son atajos propios de GNOME, en Configuración → Teclado → Atajos personalizados:
 - **Super+I** («Ío: pausar o reanudar la escucha») ejecuta `bin/narrador escucha alternar`.
+- **Mayús+Super+I** («Ío: escucha interna (oír también el equipo)») ejecuta `bin/narrador escucha interna alternar`.
 - **Alt + Shift derecho** («Ío: abrir») ejecuta `bin/io-ventana`.
 
 ## Siguiente paso: que conteste antes
@@ -195,5 +236,5 @@ claude plugin marketplace remove agent-voice
 bin/narrador escucha parar
 bin/narrador parar
 rm -rf ~/.local/share/narrador
-# y borra los atajos «Ío: pausar o reanudar la escucha» e «Ío: abrir» en Configuración → Teclado
+# y borra los atajos «Ío: pausar o reanudar la escucha», «Ío: escucha interna» e «Ío: abrir» en Configuración → Teclado
 ```

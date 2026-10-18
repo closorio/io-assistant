@@ -3,31 +3,39 @@
 
 Órdenes (una línea JSON por conexión): decir, saltar, vaciar, recargar, estado, salir.
 Abre el socket antes de cargar el motor para que el primer hook no espere al modelo.
+Cada corte queda en el log con quién lo ordenó: el «origen» que declara la orden, su sesión
+y el proceso que la envió (y sus padres), que el kernel da por el socket.
 """
 
 import fcntl
 import json
 import os
 import re
+import socket
 import socketserver
+import struct
 import subprocess
 import sys
 import threading
 import time
 import unicodedata
 from collections import deque
+from pathlib import Path
 
 from comun import LOCK, LOG, RUNTIME, leer_config, ruta_socket
 from motores import MOTORES, cadena
 
 INACTIVIDAD_MAX = 45 * 60
 TEXTO_MAX = 400
+ORDENES_DE_CORTE = ("saltar", "vaciar", "recargar", "salir")  # las que pueden callar la voz
 
 cfg = leer_config()
 cola: deque = deque()
 cond = threading.Condition()
 estado = {
-    "proc": None, "motor": None, "cortada": False, "generacion": 0, "actividad": time.monotonic(),
+    "proc": None, "motor": None, "generacion": 0, "actividad": time.monotonic(),
+    "cortada": None,  # quién cortó la frase que suena
+    "vaciada_por": None,  # quién vació la cola por última vez
     "sesion": None,  # sesión de Claude Code de la frase que se sintetiza o suena
 }
 motores_cargados: dict = {}  # nombre -> (firma de config, instancia)
@@ -68,28 +76,76 @@ def motor(nombre: str):
     return instancia
 
 
-def detener_actual() -> None:
+def describir(pid: int) -> str:
+    """El proceso en pocas palabras: «claude «Ío»» o el programa y sus primeros argumentos."""
+    try:
+        args = [a.decode("utf-8", "replace") for a in Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\0") if a]
+    except OSError:
+        return "ya terminado"
+    if "--name" in args[:-1]:
+        return f"claude «{args[args.index('--name') + 1]}»"
+    if args and Path(args[0]).name in ("bash", "sh", "zsh"):
+        return Path(args[0]).name  # su -c lleva todo el entorno de Claude Code: no aporta
+    return " ".join(Path(a).name if a.startswith("/") else a for a in args[:3])[:40] or "?"
+
+
+def padre(pid: int) -> int:
+    try:
+        for linea in Path(f"/proc/{pid}/status").read_text().splitlines():
+            if linea.startswith("PPid:"):
+                return int(linea.split()[1])
+    except (OSError, ValueError):
+        pass
+    return 0
+
+
+def quien(conexion: socket.socket, orden: dict) -> str:
+    """Quién manda una orden de corte: lo que declara (origen, sesión) y su proceso con sus padres hasta
+    la sesión de Claude Code que lo lanzó, si la hay."""
+    partes = [str(orden["origen"])] if orden.get("origen") else []
+    if orden.get("sesion"):
+        partes.append(f"sesión {str(orden['sesion'])[:8]}")
+    try:
+        credenciales = conexion.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, struct.calcsize("3i"))
+        pid = struct.unpack("3i", credenciales)[0]
+    except OSError:
+        pid = 0
+    if pid:
+        cadena, actual = [], pid
+        while actual > 1 and len(cadena) < 4:
+            cadena.append(describir(actual))
+            if cadena[-1].startswith("claude") or cadena[-1] == "ya terminado":
+                break
+            actual = padre(actual)
+        partes.append(f"pid {pid} " + " ← ".join(cadena))
+    return " · ".join(partes) or "desconocido"
+
+
+def detener_actual(motivo: str) -> None:
     proc = estado["proc"]
     if proc and proc.poll() is None:
-        estado["cortada"] = True
+        estado["cortada"] = motivo
         proc.terminate()
     if estado["motor"]:
         estado["motor"].cancelar()
 
 
-def vaciar(sesion: str | None = None) -> None:
+def vaciar(sesion: str | None = None, motivo: str = "desconocido") -> None:
     """Sin sesión lo descarta todo; con sesión, solo lo que dijo esa sesión."""
     with cond:
-        if sesion is None:
-            cola.clear()
-        else:
-            quedan = [frase for frase in cola if frase[2] != sesion]
-            cola.clear()
-            cola.extend(quedan)
-            if estado["sesion"] != sesion:
-                return  # lo que suena es de otra sesión
-        estado["generacion"] += 1
-    detener_actual()
+        antes = len(cola)
+        quedan = [frase for frase in cola if sesion is not None and frase[2] != sesion]
+        cola.clear()
+        cola.extend(quedan)
+        descartadas = antes - len(cola)
+        suena_otra = sesion is not None and estado["sesion"] != sesion  # lo que suena es de otra sesión
+        if not suena_otra:
+            estado["generacion"] += 1
+            estado["vaciada_por"] = motivo
+    if descartadas:
+        log(f"vaciadas {descartadas} frase(s) en cola ← {motivo}")
+    if not suena_otra:
+        detener_actual(motivo)
 
 
 def hablar(texto: str, recibido: float, generacion: int) -> None:
@@ -103,15 +159,17 @@ def hablar(texto: str, recibido: float, generacion: int) -> None:
             log(f"fallo {nombre}: {e}")
             continue
         try:
-            if generacion != estado["generacion"]:
-                return  # se vació la cola mientras sintetizaba
+            if generacion != estado["generacion"]:  # se vació la cola mientras sintetizaba
+                log(f"{nombre} descartada antes de sonar «{texto[:60]}» ← {estado['vaciada_por']}")
+                return
             espera = (time.monotonic() - recibido) * 1000
             estado["motor"] = m
-            estado["cortada"] = False
+            estado["cortada"] = None
             estado["proc"] = subprocess.Popen(orden, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             rc = estado["proc"].wait()
             final = "cortada" if estado["cortada"] else f"rc={rc}"
-            log(f"{nombre} sintesis={sintesis:.0f}ms hasta_sonar={espera:.0f}ms {final} «{texto[:60]}»")
+            por = f" ← {estado['cortada']}" if estado["cortada"] else ""
+            log(f"{nombre} sintesis={sintesis:.0f}ms hasta_sonar={espera:.0f}ms {final} «{texto[:60]}»{por}")
         except OSError as e:
             log(f"no se pudo reproducir con {orden[0]}: {e}")
         finally:
@@ -146,7 +204,8 @@ def vigilante() -> None:
             return
 
 
-def procesar(orden: dict):
+def procesar(orden: dict, motivo: str = "desconocido"):
+    """`motivo` dice quién manda la orden; solo cuenta en las que pueden cortar la voz."""
     global cfg
     estado["actividad"] = time.monotonic()
     cmd = orden.get("cmd")
@@ -161,13 +220,13 @@ def procesar(orden: dict):
                 log(f"descartada por cola llena «{descartada[:60]}»")
             cond.notify()
     elif cmd == "saltar":
-        detener_actual()
+        detener_actual(f"saltar · {motivo}")
     elif cmd == "vaciar":
-        vaciar(orden.get("sesion"))
+        vaciar(orden.get("sesion"), f"vaciar · {motivo}")
     elif cmd == "recargar":
         cfg = leer_config()
         if cfg.get("silencio"):
-            vaciar()
+            vaciar(motivo=f"silencio · {motivo}")
     elif cmd == "estado":
         return {
             "pid": os.getpid(),
@@ -178,7 +237,7 @@ def procesar(orden: dict):
             "cargados": sorted(motores_cargados),
         }
     elif cmd == "salir":
-        vaciar()
+        vaciar(motivo=f"salir · {motivo}")
         retirar_socket()  # los clientes nuevos ya arrancan otro daemon
         threading.Thread(target=servidor.shutdown, daemon=True).start()
     return None
@@ -196,7 +255,8 @@ class Manejador(socketserver.StreamRequestHandler):
     def handle(self):
         try:
             orden = json.loads(self.rfile.readline().decode("utf-8"))
-            respuesta = procesar(orden)
+            motivo = quien(self.request, orden) if orden.get("cmd") in ORDENES_DE_CORTE else ""
+            respuesta = procesar(orden, motivo)
         except Exception as e:
             log(f"orden inválida: {e}")
             return
