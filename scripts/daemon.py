@@ -3,6 +3,9 @@
 
 Órdenes (una línea JSON por conexión): decir, saltar, vaciar, recargar, estado, salir.
 Abre el socket antes de cargar el motor para que el primer hook no espere al modelo.
+Dos hilos se reparten la voz: el sintetizador prepara la frase siguiente mientras el
+reproductor dice la actual, así entre frase y frase no hay un hueco de dos segundos
+(Kokoro tarda unos 2 s por frase y el audio de cada una dura 3 o 4).
 Cada corte queda en el log con quién lo ordenó: el «origen» que declara la orden, su sesión
 y el proceso que la envió (y sus padres), que el kernel da por el socket.
 """
@@ -20,6 +23,7 @@ import threading
 import time
 import unicodedata
 from collections import deque
+from dataclasses import dataclass
 from pathlib import Path
 
 from comun import LOCK, LOG, RUNTIME, leer_config, ruta_socket
@@ -27,21 +31,36 @@ from motores import MOTORES, cadena
 
 INACTIVIDAD_MAX = 45 * 60
 TEXTO_MAX = 400
+PREPARAR_MAX = 1  # frases sintetizadas por adelantado mientras suena otra
 ORDENES_DE_CORTE = ("saltar", "vaciar", "recargar", "salir")  # las que pueden callar la voz
 
 cfg = leer_config()
-cola: deque = deque()
+cola: deque = deque()  # (texto, recibido, sesion): pendientes de sintetizar
+preparadas: deque = deque()  # Frase: sintetizadas, esperando a sonar
 cond = threading.Condition()
 estado = {
-    "proc": None, "motor": None, "generacion": 0, "actividad": time.monotonic(),
+    "proc": None, "motor": None, "actividad": time.monotonic(),
     "cortada": None,  # quién cortó la frase que suena
     "vaciada_por": None,  # quién vació la cola por última vez
-    "sesion": None,  # sesión de Claude Code de la frase que se sintetiza o suena
+    "sesion": None,  # sesión de Claude Code de la frase que suena
+    "generacion": 0,  # cuántos vaciados ha habido (solo informativo)
 }
+vaciados: dict = {}  # sesión (o "*" para todas) -> (momento del último vaciado, quién lo ordenó)
 motores_cargados: dict = {}  # nombre -> (firma de config, instancia)
-carga = threading.Lock()  # la precarga y el trabajador no deben cargar a la vez
+carga = threading.Lock()  # la precarga y el sintetizador no deben cargar a la vez
 servidor = None
 socket_retirado = False
+
+
+@dataclass
+class Frase:
+    texto: str
+    recibido: float  # monotonic de cuando llegó la orden «decir»
+    sesion: str | None
+    nombre: str  # motor que la sintetizó
+    orden: list
+    tmp: Path | None
+    sintesis: float  # ms
 
 
 def log(mensaje: str) -> None:
@@ -121,6 +140,17 @@ def quien(conexion: socket.socket, orden: dict) -> str:
     return " · ".join(partes) or "desconocido"
 
 
+# --- vaciar y cortar --------------------------------------------------------------------
+
+def vaciada(recibido: float, sesion: str | None) -> str | None:
+    """Quién vació la cola después de que llegara esta frase, si alguien lo hizo (la frase ya no debe sonar)."""
+    marcas = [vaciados.get("*")] + ([vaciados.get(sesion)] if sesion is not None else [])
+    for marca in marcas:
+        if marca and recibido < marca[0]:
+            return marca[1]
+    return None
+
+
 def detener_actual(motivo: str) -> None:
     proc = estado["proc"]
     if proc and proc.poll() is None:
@@ -130,65 +160,105 @@ def detener_actual(motivo: str) -> None:
         estado["motor"].cancelar()
 
 
+def _borrar(frase: "Frase") -> None:
+    if frase.tmp:
+        frase.tmp.unlink(missing_ok=True)
+
+
 def vaciar(sesion: str | None = None, motivo: str = "desconocido") -> None:
-    """Sin sesión lo descarta todo; con sesión, solo lo que dijo esa sesión."""
+    """Sin sesión lo descarta todo; con sesión, solo lo que dijo esa sesión. Alcanza a lo que espera en cola,
+    a lo ya sintetizado y a lo que se esté sintetizando ahora mismo."""
     with cond:
-        antes = len(cola)
-        quedan = [frase for frase in cola if sesion is not None and frase[2] != sesion]
+        vaciados[sesion if sesion is not None else "*"] = (time.monotonic(), motivo)
+        estado["generacion"] += 1
+        mia = (lambda s: True) if sesion is None else (lambda s: s == sesion)
+        antes = len(cola) + len(preparadas)
+        quedan = [frase for frase in cola if not mia(frase[2])]
         cola.clear()
         cola.extend(quedan)
-        descartadas = antes - len(cola)
+        for frase in [f for f in preparadas if mia(f.sesion)]:
+            preparadas.remove(frase)
+            _borrar(frase)
+        descartadas = antes - len(cola) - len(preparadas)
         suena_otra = sesion is not None and estado["sesion"] != sesion  # lo que suena es de otra sesión
         if not suena_otra:
-            estado["generacion"] += 1
             estado["vaciada_por"] = motivo
+        cond.notify_all()
     if descartadas:
         log(f"vaciadas {descartadas} frase(s) en cola ← {motivo}")
     if not suena_otra:
         detener_actual(motivo)
 
 
-def hablar(texto: str, recibido: float, generacion: int) -> None:
+# --- sintetizar y reproducir ------------------------------------------------------------
+
+def sintetizar(texto: str, recibido: float, sesion: str | None) -> "Frase | None":
+    """La frase con su audio ya preparado por el primer motor de la cadena que funcione, o None."""
     for nombre in cadena(cfg["motor"]):
         try:
             m = motor(nombre)
             t0 = time.monotonic()
             orden, tmp = m.preparar(texto)
-            sintesis = (time.monotonic() - t0) * 1000
+            return Frase(texto, recibido, sesion, nombre, orden, tmp, (time.monotonic() - t0) * 1000)
         except Exception as e:
             log(f"fallo {nombre}: {e}")
-            continue
-        try:
-            if generacion != estado["generacion"]:  # se vació la cola mientras sintetizaba
-                log(f"{nombre} descartada antes de sonar «{texto[:60]}» ← {estado['vaciada_por']}")
-                return
-            espera = (time.monotonic() - recibido) * 1000
-            estado["motor"] = m
-            estado["cortada"] = None
-            estado["proc"] = subprocess.Popen(orden, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            rc = estado["proc"].wait()
-            final = "cortada" if estado["cortada"] else f"rc={rc}"
-            por = f" ← {estado['cortada']}" if estado["cortada"] else ""
-            log(f"{nombre} sintesis={sintesis:.0f}ms hasta_sonar={espera:.0f}ms {final} «{texto[:60]}»{por}")
-        except OSError as e:
-            log(f"no se pudo reproducir con {orden[0]}: {e}")
-        finally:
-            estado["proc"] = None
-            estado["motor"] = None
-            if tmp:
-                tmp.unlink(missing_ok=True)
-        return
     log(f"ningún motor pudo decir «{texto[:60]}»")
+    return None
 
 
-def trabajador() -> None:
+def sintetizador() -> None:
+    """Saca frases de la cola y las deja sintetizadas en `preparadas`, como mucho PREPARAR_MAX por delante."""
     while True:
         with cond:
-            while not cola:
+            while not cola or len(preparadas) >= PREPARAR_MAX:
                 cond.wait()
-            texto, recibido, estado["sesion"] = cola.popleft()
-            generacion = estado["generacion"]
-        hablar(texto, recibido, generacion)
+            texto, recibido, sesion = cola.popleft()
+        frase = sintetizar(texto, recibido, sesion)
+        if frase is None:
+            continue
+        with cond:
+            motivo = vaciada(frase.recibido, frase.sesion)
+            if motivo:
+                _borrar(frase)
+                log(f"{frase.nombre} descartada antes de sonar «{frase.texto[:60]}» ← {motivo}")
+            else:
+                preparadas.append(frase)
+            cond.notify_all()
+
+
+def reproducir(frase: "Frase") -> None:
+    espera = (time.monotonic() - frase.recibido) * 1000
+    try:
+        estado["motor"] = motor(frase.nombre)
+        estado["cortada"] = None
+        estado["proc"] = subprocess.Popen(frase.orden, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        rc = estado["proc"].wait()
+        final = "cortada" if estado["cortada"] else f"rc={rc}"
+        por = f" ← {estado['cortada']}" if estado["cortada"] else ""
+        log(f"{frase.nombre} sintesis={frase.sintesis:.0f}ms hasta_sonar={espera:.0f}ms {final} «{frase.texto[:60]}»{por}")
+    except OSError as e:
+        log(f"no se pudo reproducir con {frase.orden[0]}: {e}")
+    finally:
+        estado["proc"] = None
+        estado["motor"] = None
+        _borrar(frase)
+
+
+def reproductor() -> None:
+    while True:
+        with cond:
+            while not preparadas:
+                cond.wait()
+            frase = preparadas.popleft()
+            motivo = vaciada(frase.recibido, frase.sesion)
+            if motivo:
+                _borrar(frase)
+                log(f"{frase.nombre} descartada antes de sonar «{frase.texto[:60]}» ← {motivo}")
+                cond.notify_all()
+                continue
+            estado["sesion"] = frase.sesion
+            cond.notify_all()  # ya hay sitio para preparar la siguiente mientras suena esta
+        reproducir(frase)
         with cond:
             estado["sesion"] = None
         estado["actividad"] = time.monotonic()
@@ -198,11 +268,13 @@ def vigilante() -> None:
     while True:
         time.sleep(30)
         ocioso = time.monotonic() - estado["actividad"] > INACTIVIDAD_MAX
-        if ocioso and not cola and estado["proc"] is None:
+        if ocioso and not cola and not preparadas and estado["proc"] is None:
             log("apagado por inactividad")
             servidor.shutdown()
             return
 
+
+# --- órdenes ----------------------------------------------------------------------------
 
 def procesar(orden: dict, motivo: str = "desconocido"):
     """`motivo` dice quién manda la orden; solo cuenta en las que pueden cortar la voz."""
@@ -218,7 +290,7 @@ def procesar(orden: dict, motivo: str = "desconocido"):
             while len(cola) > max(1, int(cfg.get("cola_max", 4))):
                 descartada = cola.popleft()[0]
                 log(f"descartada por cola llena «{descartada[:60]}»")
-            cond.notify()
+            cond.notify_all()
     elif cmd == "saltar":
         detener_actual(f"saltar · {motivo}")
     elif cmd == "vaciar":
@@ -232,7 +304,7 @@ def procesar(orden: dict, motivo: str = "desconocido"):
             "pid": os.getpid(),
             "motor": cfg["motor"],
             "silencio": bool(cfg.get("silencio")),
-            "en_cola": len(cola),
+            "en_cola": len(cola) + len(preparadas),
             "hablando": estado["proc"] is not None,
             "cargados": sorted(motores_cargados),
         }
@@ -286,7 +358,8 @@ def main() -> None:
     servidor.daemon_threads = True
     log(f"daemon {os.getpid()} escuchando; motor {cfg['motor']}")
 
-    threading.Thread(target=trabajador, daemon=True).start()
+    threading.Thread(target=sintetizador, daemon=True).start()
+    threading.Thread(target=reproductor, daemon=True).start()
     threading.Thread(target=vigilante, daemon=True).start()
     # Precarga el motor en segundo plano para que la primera frase tarde menos.
     threading.Thread(target=_precargar, daemon=True).start()
