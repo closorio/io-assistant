@@ -60,7 +60,7 @@ La memoria de Ío (`memory: user` en `agents/io.md`) vive donde Claude Code la f
 
 1. Trabaja en tu sesión de siempre, la **ejecutora**, sin estilo de voz.
 2. Abre otra sesión de Claude Code **en el mismo proyecto** (otra pestaña de VS Code u otra terminal) y escribe `/narrador:mentor`. Si tienes varias sesiones abiertas, te preguntará cuál observar; `/narrador:mentor sesiones` las lista y `/narrador:mentor ID` elige una.
-3. **Para hablarle, empieza la frase por «Ío»**: «Ío, ¿por qué ha cambiado eso?». Mientras dura la conversación puedes seguir sin nombrarle: mientras Ío habla o trabaja, mientras tú le hablas, y hasta `escucha.ventana` segundos después de que la conversación se pare. Pasado ese tiempo, si le hablas sin nombrarle, suena un tono suave y descendente: es que tienes que empezar por «Ío».
+3. **Para hablarle, empieza la frase por «Ío»**: «Ío, ¿por qué ha cambiado eso?». Mientras dura la conversación puedes seguir sin nombrarle: mientras Ío habla o trabaja, y hasta `escucha.ventana` segundos después de la última actividad de cualquiera de los dos; cada frase tuya que la huella confirma vuelve a poner el plazo entero, y una frase que empieza dentro del plazo vale aunque acabe fuera. Pasado ese tiempo, si le hablas sin nombrarle, suena un tono suave y descendente: es que tienes que empezar por «Ío».
 4. **Para interrumpirle, háblale**: a los ~250 ms de oírte (`escucha.corte`) comprueba con la huella de voz que eres tú y se calla. Sin huella, o si la voz no es la tuya (su propio eco, un vídeo), no se corta; tu frase le llega igual. Funciona mejor con cascos; si no quieres que te corte nunca a media frase, pon `escucha.interrumpir` a `false`. Escribir en su terminal también le calla; los avisos que le llegan solos (Monitor, tareas que terminan) no.
 5. **Super+I** pausa o reanuda la escucha (cierra el micrófono). Lo confirma en voz alta.
 6. **Avisos sonoros** (tonos cortos y suaves):
@@ -159,7 +159,7 @@ No existe hasta el primer cambio con la CLI; mientras tanto se usan los valores 
 | `piper.voz` / `piper.velocidad` / `piper.hablante` | Voz, velocidad (0,5–2) y hablante (en voces con varios, como `es_ES-sharvard-medium`) de Piper |
 | `spd.idioma` / `spd.velocidad` | Idioma y velocidad de spd (-100..100). spd ignora `destino` |
 | `escucha.nombre` | Palabra que despierta a Ío (`Ío`) |
-| `escucha.ventana` | Segundos sin tener que nombrarle, contados desde que la conversación se para: ni Ío habla o trabaja, ni tú le estás hablando (90). Mientras sigue la conversación, la cuenta no corre |
+| `escucha.ventana` | Segundos sin tener que nombrarle, contados desde la última actividad: lo último que Ío dijo o hizo, o tu última frase confirmada por la huella (90). Mientras sigue la conversación, la cuenta no corre; un vídeo o otra voz no la alargan |
 | `escucha.aviso_descarte` | `true` para oír un tono cuando descarta una frase por no oír su nombre |
 | `escucha.interrumpir` | `true` para cortarle hablando, solo si la huella confirma que eres tú; mejor con cascos |
 | `escucha.pausa` | Micrófono cerrado (Super+I lo alterna) |

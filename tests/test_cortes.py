@@ -175,12 +175,28 @@ class Oido(unittest.TestCase):
             self.o.soltar_parrafo(forzar=True)
             self.assertEqual(bool(self.callado), calla)
 
-    def test_la_ventana_no_corre_mientras_le_hablas(self):
+    def test_un_parrafo_tuyo_en_camino_mantiene_la_ventana(self):
+        ahora = oido.time.monotonic()
+        self.o.ventana_abierta, self.o.ventana_hasta, self.o.hablando = True, ahora + 1, False
+        self.o.pendiente = ["sigo con lo de antes"]  # frases ya confirmadas por la huella, esperando a juntarse
+        with mock.patch.object(self.o, "io_trabajando", lambda: False):
+            self.o.mantener_ventana()
+        self.assertGreater(self.o.ventana_hasta, ahora + 290)  # el plazo (300) vuelve a estar entero
+
+    def test_la_voz_cruda_no_mantiene_la_ventana(self):
+        """Un vídeo o alguien al lado activan el VAD, pero no son tu huella: la cuenta sigue corriendo."""
         ahora = oido.time.monotonic()
         self.o.ventana_abierta, self.o.ventana_hasta, self.o.hablando, self.o.en_voz = True, ahora + 1, False, True
         with mock.patch.object(self.o, "io_trabajando", lambda: False):
             self.o.mantener_ventana()
-        self.assertGreater(self.o.ventana_hasta, ahora + 290)  # el plazo (300) vuelve a estar entero
+        self.assertAlmostEqual(self.o.ventana_hasta, ahora + 1, delta=0.1)
+
+    def test_una_frase_tuya_confirmada_renueva_la_ventana(self):
+        ahora = oido.time.monotonic()
+        self.o.ventana_hasta = ahora + 1
+        with self.con_huella(0.8), mock.patch.object(self.o, "_whisper", lambda *a: ("y otra cosa más", 10)):
+            self.o.transcribir(np.zeros(16000, np.float32), ahora, 0.8, inicio=ahora - 2)
+        self.assertGreater(self.o.ventana_hasta, ahora + 290)
 
     def test_tu_voz_no_abre_una_ventana_cerrada(self):
         self.o.ventana_abierta, self.o.ventana_hasta, self.o.hablando, self.o.en_voz = False, 0.0, False, True

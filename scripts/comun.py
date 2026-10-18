@@ -49,7 +49,7 @@ CONFIG_DEFECTO = {
     "escucha": {
         "pausa": False,
         "nombre": "Ío",  # palabra que le despierta
-        "ventana": 90,  # s de conversación parada (ni Ío habla o trabaja, ni tú le hablas) tras los que hay que volver a nombrarle
+        "ventana": 90,  # s sin actividad (ni Ío habla o trabaja, ni frases tuyas confirmadas por la huella) tras los que hay que volver a nombrarle
         "agrupar": 1.5,  # s de calma tras tu última frase para entregar a Ío todo junto como un párrafo (0 = frase a frase)
         "agrupar_max": 25,  # s máximos que se retiene un párrafo en formación
         "corte": 0.25,  # s de tu voz sobre la de Ío para cortarle (más = menos cortes falsos por eco)

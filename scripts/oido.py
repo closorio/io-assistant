@@ -201,16 +201,16 @@ class Oido:
             return False
 
     def conversacion_activa(self) -> bool:
-        """Hay conversación en marcha: Ío habla o trabaja, o, con la ventana ya abierta, tú le estás hablando (voz en
-        el micrófono, una frase esperando a Whisper o un párrafo por entregar). Tu voz sola no abre la ventana:
-        para eso hay que nombrarle."""
+        """Hay conversación en marcha: Ío habla o trabaja, o hay un párrafo tuyo por entregar (frases que la huella
+        ya confirmó como tuyas). La voz cruda del micrófono no cuenta: un vídeo o alguien al lado no mantienen la
+        ventana; solo lo que la huella confirma, que ya la renueva al aceptarse cada frase."""
         if self.hablando or self.io_trabajando():
             return True
-        return self.ventana_abierta and (self.en_voz or self.transcribiendo or not self.frases.empty() or bool(self.pendiente))
+        return self.ventana_abierta and bool(self.pendiente)
 
     def mantener_ventana(self) -> None:
-        """La cuenta atrás de `escucha.ventana` solo corre con la conversación parada: mientras uno de los dos
-        hace algo, el plazo se vuelve a poner entero. Cuando se agota, avisa una vez."""
+        """La cuenta atrás de `escucha.ventana` solo corre con la conversación parada: mientras Ío hace algo o
+        hay frases tuyas confirmadas en camino, el plazo se vuelve a poner entero. Cuando se agota, avisa una vez."""
         ahora = time.monotonic()
         if self.conversacion_activa():
             self.ventana_hasta = max(self.ventana_hasta, ahora + float(self.esc["ventana"]))
