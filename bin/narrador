@@ -15,7 +15,8 @@
   narrador escucha interna [activar|desactivar|alternar|estado]   (oye también lo que suena en el equipo, como [voz-equipo])
   narrador huella [grabar [SEGUNDOS]|probar|estado|borrar]   (huella de tu voz: filtra vídeos y otras voces)
   narrador proyectos [--todos] [--git]
-  narrador trabajador lanzar PROYECTO "TAREA" [--modelo opus] [--contrato] | lista | abrir NOMBRE
+  narrador trabajador lanzar PROYECTO "TAREA" [--modelo opus] [--contrato] | lista | esperar NOMBRE [--max MIN] | abrir NOMBRE
+                             (esperar: bloquea hasta que termina e imprime su resumen de una vez; para un Monitor de Ío)
   narrador recordar MINUTOS TEXTO
   narrador guia [TEMA]       (guías de Ío: sesiones, proyectos, escritorio, personal, mentor)
   narrador parte [--json|--md|--forzar|--solo A,B|--tenant T|--entregado|--simular|--estado]   (parte matinal: salud de producción y pendientes, solo lectura)

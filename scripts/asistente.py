@@ -27,6 +27,19 @@ def corta(ruta: str) -> str:
     return ruta.replace(CASA, "~")
 
 
+SESION_IO = ("CLAUDE_CODE_", "CLAUDECODE", "CLAUDE_PID", "CLAUDE_EFFORT", "AI_AGENT")
+# Para terminales: quita esas variables antes de ejecutar lo que venga detrás (gnome-terminal no siempre respeta `env=`).
+SIN_SESION = ('for v in $(env | grep -oE "^(CLAUDE_CODE_[A-Z_]*|CLAUDECODE|CLAUDE_PID|CLAUDE_EFFORT|AI_AGENT)"); '
+              'do unset "$v"; done; exec "$@"')
+
+
+def entorno_limpio() -> dict:
+    """El entorno para un claude hijo, sin las variables de la sesión de Ío que lo lanza. Si las hereda,
+    Claude Code lo trata como sesión hija y no guarda su conversación en el historial (comprobado el
+    2026-10-18 con una terminal abierta desde Ío). Se conservan CLAUDE_CONFIG_DIR y el resto."""
+    return {k: v for k, v in os.environ.items() if not k.startswith(SESION_IO)} | {"NARRADOR_IO": "1"}
+
+
 def claude() -> str:
     binario = binario_claude()
     if not binario:
@@ -198,7 +211,7 @@ def lanzar(proyecto: str, tarea: str, modelo: str | None = None, contrato: bool 
         _archivo_resultado(nombre).parent.mkdir(parents=True, exist_ok=True)
         tarea = PLANTILLA_CONTRATO.format(tarea=tarea, ruta=_archivo_resultado(nombre))
     comunes = ["--permission-mode", "auto"] + (["--model", modelo] if modelo else [])
-    entorno = dict(os.environ, NARRADOR_IO="1")
+    entorno = entorno_limpio()
     registro = {"nombre": nombre, "ruta": str(ruta), "tarea": original, "contrato": contrato, "modelo": modelo, "inicio": time.time()}
     r = subprocess.run([claude(), "--bg", "--name", nombre, *comunes, tarea], cwd=ruta, env=entorno,
                        capture_output=True, text=True, timeout=90)
@@ -284,13 +297,88 @@ def abrir(nombre: str) -> None:
         orden = [claude(), "attach", t["nombre"]]
     else:
         orden = [claude(), "--resume", t["session_id"]]
-    subprocess.Popen([terminal, f"--title={t['nombre']}", f"--working-directory={t['ruta']}", "--", *orden],
-                     start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    subprocess.Popen([terminal, f"--title={t['nombre']}", f"--working-directory={t['ruta']}", "--",
+                      "bash", "-c", SIN_SESION, "io", *orden],
+                     env=entorno_limpio(), start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     print(f"abierto {t['nombre']} en una terminal nueva")
 
 
+ESPERA_SONDEO = 15  # s entre miradas al informe o al log del trabajador
+ESPERA_AGENTES = 90  # s entre consultas a `claude agents` (cada una arranca un proceso claude)
+INFORME_QUIETO = 5  # s sin cambios en el informe para darlo por terminado de escribir
+
+
+def _buscar_trabajador(nombre: str) -> dict:
+    t = next((t for t in reversed(_registro()) if t["nombre"] == nombre or nombre in t["nombre"]), None)
+    if not t:
+        raise SystemExit(f"no hay ningún trabajador «{nombre}» (mira narrador trabajador lista)")
+    return t
+
+
+def _informe(t: dict) -> str | None:
+    """El informe del contrato, si ya está escrito y lleva unos segundos sin cambiar."""
+    ruta = _archivo_resultado(t["nombre"])
+    try:
+        st = ruta.stat()
+    except OSError:
+        return None
+    if st.st_size == 0 or time.time() - st.st_mtime < INFORME_QUIETO:
+        return None
+    return ruta.read_text(encoding="utf-8", errors="replace")
+
+
+def resumen_voz(informe: str, maximo: int = 6) -> str:
+    """Las primeras líneas del informe: el resumen en llano que pide el contrato, antes del primer título."""
+    lineas = []
+    for linea in informe.strip().splitlines():
+        if linea.startswith("#") and lineas:
+            break
+        if linea.strip() and not linea.startswith("#"):
+            lineas.append(linea.strip().removeprefix("Resumen:").strip())
+    return " ".join(lineas[:maximo])
+
+
+def esperar(nombre: str, maximo_min: float | None = None) -> int:
+    """Bloquea hasta que el trabajador termina y entonces imprime, de una vez, su estado y el resumen del
+    informe: pensado para un Monitor de Ío. Si el Monitor caduca y se rearma, vuelve a esperar sin más."""
+    t = _buscar_trabajador(nombre)
+    inicio = time.monotonic()
+    ultima_agentes = -ESPERA_AGENTES
+    sin_actividad = 0
+    estado, resultado = "trabajando", ""
+    while True:
+        informe = _informe(t) if t.get("contrato") else None
+        if informe is not None:
+            estado, resultado = "terminado", resumen_voz(informe)
+            break
+        ahora = time.monotonic()
+        if t.get("tipo") == "p":
+            estado, resultado = _estado_p(t)
+            if estado != "trabajando":
+                break
+        elif ahora - ultima_agentes >= ESPERA_AGENTES:
+            ultima_agentes = ahora
+            vivo = next((a for a in agentes(todas=True) if a.get("name") == t["nombre"]), None)
+            sin_actividad = sin_actividad + 1 if not vivo or vivo.get("status") != "busy" else 0
+            if sin_actividad >= 2:  # dos consultas seguidas sin trabajar y sin informe
+                estado = "parado sin informe" if not vivo else f"{vivo.get('status', 'parado')} sin informe"
+                break
+        if maximo_min is not None and ahora - inicio > maximo_min * 60:
+            estado = "sigue trabajando"
+            break
+        time.sleep(ESPERA_SONDEO)
+    lineas = [f"[trabajador {t['nombre']}] {estado} · lanzado hace {hace(time.time() - t['inicio'])} · {corta(t['ruta'])}"]
+    if resultado:
+        lineas.append(f"Resumen: {resultado}")
+    if t.get("contrato"):
+        lineas.append(f"Informe completo: {corta(str(_archivo_resultado(t['nombre'])))}")
+    print("\n".join(lineas), flush=True)
+    return 0 if estado in ("terminado", "sigue trabajando") else 1
+
+
 def trabajador(args: list[str]) -> None:
-    uso = "uso: narrador trabajador lanzar PROYECTO \"TAREA\" [--modelo opus] [--contrato] | lista | abrir NOMBRE"
+    uso = ("uso: narrador trabajador lanzar PROYECTO \"TAREA\" [--modelo opus] [--contrato] | lista | "
+           "esperar NOMBRE [--max MINUTOS] | abrir NOMBRE")
     if not args or args[0] == "lista":
         lista_trabajadores()
     elif args[0] == "lanzar" and len(args) >= 3:
@@ -303,6 +391,9 @@ def trabajador(args: list[str]) -> None:
         contrato = "--contrato" in resto
         resto = [a for a in resto if a != "--contrato"]
         lanzar(resto[0], " ".join(resto[1:]), modelo, contrato)
+    elif args[0] == "esperar" and len(args) >= 2:
+        maximo = float(args[args.index("--max") + 1]) if "--max" in args[:-1] else None
+        sys.exit(esperar(args[1], maximo))
     elif args[0] == "abrir" and len(args) == 2:
         abrir(args[1])
     else:
