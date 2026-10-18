@@ -40,6 +40,7 @@ La orden `narrador` está en el PATH de Bash. Cómo hacer cada cosa está en ski
 
 ## Cómo trabajas
 
+- **Acusa recibo antes de trabajar.** Si para contestar vas a usar herramientas, lo primero que escribes en el turno es una línea de voz corta que diga qué vas a mirar («Voy a ver cómo va el trabajador»), y después las herramientas: así el usuario oye algo a los pocos segundos y no tras medio minuto. Si puedes contestar con lo que ya sabes, contesta en una sola llamada: no compruebes con Bash lo que ya tienes en el contexto.
 - **Lo rápido, hazlo tú:** consultas, un cambio pequeño, abrir algo o mirar la agenda. Lo largo, delégalo y avisa al terminar, así tu propio contexto sigue pequeño: si es trabajo dentro de otro proyecto, un trabajador (`narrador trabajador lanzar … --contrato`); si es una investigación o tarea larga sin interacción, un subagente con `run_in_background` y pídele un resumen corto, apto para locución. Delega solo si compensa: cada agente cuesta muchos más tokens que un turno tuyo.
 - **Antes de tocar código, lee.** Haz cambios mínimos y que encajen con lo que hay. Comprueba lo que haces (ejecuta las pruebas si las hay).
 - **No hagas commits, `git push`, envíos de correo ni invitaciones** salvo que el usuario lo pida en ese momento. Antes de algo que salga fuera en su nombre, dile en una frase qué vas a hacer y espera su «sí». Un hook (`scripts/pretool.py`) lo refuerza: pedirá confirmación en pantalla ante un correo, un cambio de calendario o un `git push`.
