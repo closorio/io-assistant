@@ -200,6 +200,25 @@ class Oido:
         except OSError:
             return False
 
+    def conversacion_activa(self) -> bool:
+        """Hay conversación en marcha: Ío habla o trabaja, o, con la ventana ya abierta, tú le estás hablando (voz en
+        el micrófono, una frase esperando a Whisper o un párrafo por entregar). Tu voz sola no abre la ventana:
+        para eso hay que nombrarle."""
+        if self.hablando or self.io_trabajando():
+            return True
+        return self.ventana_abierta and (self.en_voz or self.transcribiendo or not self.frases.empty() or bool(self.pendiente))
+
+    def mantener_ventana(self) -> None:
+        """La cuenta atrás de `escucha.ventana` solo corre con la conversación parada: mientras uno de los dos
+        hace algo, el plazo se vuelve a poner entero. Cuando se agota, avisa una vez."""
+        ahora = time.monotonic()
+        if self.conversacion_activa():
+            self.ventana_hasta = max(self.ventana_hasta, ahora + float(self.esc["ventana"]))
+            self.ventana_abierta = True
+        elif self.ventana_abierta and ahora > self.ventana_hasta:
+            self.ventana_abierta = False
+            self.avisar_ventana_cerrada()
+
     def avisar_descarte(self) -> None:
         """Un tono suave y descendente: «te he oído, pero no me has nombrado»."""
         if not self.esc.get("aviso_descarte", True) or time.monotonic() - self.ultimo_aviso < AVISO_CADA:
@@ -245,12 +264,7 @@ class Oido:
                 self.hablando = False
             if self.hablando:
                 self.hablo_io = time.monotonic()
-            if self.hablando or self.io_trabajando():
-                self.ventana_hasta = max(self.ventana_hasta, time.monotonic() + float(self.esc["ventana"]))
-                self.ventana_abierta = True
-            elif self.ventana_abierta and time.monotonic() > self.ventana_hasta:
-                self.ventana_abierta = False
-                self.avisar_ventana_cerrada()
+            self.mantener_ventana()
             self.soltar_parrafo()
             mtime = self._mtime_config()
             if mtime != self.cfg_mtime:
@@ -395,7 +409,8 @@ class Oido:
         if con_voz < MIN_VOZ:
             return
         if mic:
-            self.frases.put((np.concatenate(frase), time.monotonic(), voz_media(probs)))
+            ahora = time.monotonic()
+            self.frases.put((np.concatenate(frase), ahora, voz_media(probs), ahora - len(frase) * BLOQUE / TASA))
         elif con_io:
             log("lo que sonaba en el equipo coincidía con la voz de Ío: descartado")
         else:
@@ -521,7 +536,7 @@ class Oido:
         publicar({"equipo": texto})  # sin «texto»: un `narrador escuchar` viejo nunca lo mostraría como tuyo
         log(f"equipo: {len(texto.split())} palabras ({len(audio) / TASA:.1f} s de audio, transcrito en {ms:.0f} ms)")
 
-    def transcribir(self, audio: np.ndarray, fin: float, voz: float = 0.0) -> None:
+    def transcribir(self, audio: np.ndarray, fin: float, voz: float = 0.0, inicio: float | None = None) -> None:
         """Con huella, del micrófono solo pasa lo que suena a tu voz. También con la escucha interna: lo que suena
         en el equipo llega por el monitor, marcado aparte, y no debe colarse por el micrófono como orden tuya.
         Solo una frase que la huella confirma como tuya calla a Ío."""
@@ -537,7 +552,8 @@ class Oido:
                 return
         if self.comando_escucha(normalizar(texto)):
             return
-        if fin > self.ventana_hasta and not self.despierta.search(normalizar(texto)):
+        empieza = fin if inicio is None else inicio  # vale con haber empezado a hablar dentro de la ventana
+        if empieza > self.ventana_hasta and not self.despierta.search(normalizar(texto)):
             palabras = len(texto.split())
             log(f"frase sin «{self.esc['nombre']}» fuera de conversación, descartada ({palabras} palabras)")
             if palabras >= 3:  # parece una frase de verdad, no un ruido o una palabra suelta

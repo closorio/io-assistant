@@ -175,6 +175,34 @@ class Oido(unittest.TestCase):
             self.o.soltar_parrafo(forzar=True)
             self.assertEqual(bool(self.callado), calla)
 
+    def test_la_ventana_no_corre_mientras_le_hablas(self):
+        ahora = oido.time.monotonic()
+        self.o.ventana_abierta, self.o.ventana_hasta, self.o.hablando, self.o.en_voz = True, ahora + 1, False, True
+        with mock.patch.object(self.o, "io_trabajando", lambda: False):
+            self.o.mantener_ventana()
+        self.assertGreater(self.o.ventana_hasta, ahora + 290)  # el plazo (300) vuelve a estar entero
+
+    def test_tu_voz_no_abre_una_ventana_cerrada(self):
+        self.o.ventana_abierta, self.o.ventana_hasta, self.o.hablando, self.o.en_voz = False, 0.0, False, True
+        with mock.patch.object(self.o, "io_trabajando", lambda: False):
+            self.o.mantener_ventana()
+        self.assertEqual((self.o.ventana_abierta, self.o.ventana_hasta), (False, 0.0))
+
+    def test_la_ventana_se_cierra_con_todo_parado(self):
+        avisos = []
+        self.o.ventana_abierta, self.o.ventana_hasta, self.o.hablando, self.o.en_voz = True, oido.time.monotonic() - 1, False, False
+        with mock.patch.object(self.o, "io_trabajando", lambda: False), \
+                mock.patch.object(self.o, "avisar_ventana_cerrada", lambda: avisos.append(1)):
+            self.o.mantener_ventana()
+        self.assertEqual((self.o.ventana_abierta, avisos), (False, [1]))
+
+    def test_frase_que_empieza_dentro_de_la_ventana_vale_aunque_acabe_fuera(self):
+        ahora = oido.time.monotonic()
+        self.o.ventana_hasta = ahora + 1
+        with self.con_huella(None), mock.patch.object(self.o, "_whisper", lambda *a: ("y además mira el log", 10)):
+            self.o.transcribir(np.zeros(16000, np.float32), ahora + 5, 0.8, inicio=ahora)
+        self.assertEqual(self.publicado, [{"texto": "y además mira el log"}])
+
     def test_trocear_no_corta_directamente(self):
         """Voz sobre Ío con `interrumpir`: no se le corta en el bucle del VAD, se comprueba la huella aparte."""
         comprobaciones = []
