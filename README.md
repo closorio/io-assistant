@@ -11,13 +11,13 @@
 ## Instalación
 
 ```bash
-cd /home/seppuq/Documentos/thereisnospoon/agent_voice
+cd /home/seppuq/Documentos/thereisnospoon/io-assistant
 scripts/instalar.sh                 # venv + Piper + faster-whisper + voz + modelo small (~600 MB) en ~/.local/share/narrador/
 bin/narrador prueba                 # deberías oír una frase
 bin/narrador salida hyperx          # opcional: que la voz salga por los cascos (bin/narrador salidas las lista)
 
 # registrar el plugin en Claude Code (si `claude` no está en el PATH, usa el binario de la extensión de VS Code)
-claude plugin marketplace add /home/seppuq/Documentos/thereisnospoon/agent_voice
+claude plugin marketplace add /home/seppuq/Documentos/thereisnospoon/io-assistant
 claude plugin install narrador@agent-voice
 ```
 
