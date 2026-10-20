@@ -7,6 +7,7 @@ La huella es un vector de números (no el audio) que sale de un modelo ONNX pequ
   narrador huella estado | probar | borrar
 """
 
+import fcntl
 import os
 import subprocess
 import sys
@@ -72,6 +73,13 @@ def _trozos(audio: np.ndarray) -> list:
 
 def grabar(segundos: int = 75) -> None:
     h = Huella()
+    # Dos grabaciones a la vez se pisarían la pausa del oído: la segunda leería «pausa: true» como estado previo
+    # y, al terminar, dejaría el micrófono cerrado para siempre (pasó el 2026-10-20). Un cerrojo lo impide.
+    cerrojo = open(RUNTIME / "huella.lock", "w")
+    try:
+        fcntl.flock(cerrojo, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        sys.exit("Ya hay una grabación de huella en marcha; espera a que termine o ciérrala.")
     cfg = leer_config()
     pausa_previa = cfg["escucha"].get("pausa", False)
     cfg["escucha"]["pausa"] = True  # el oído no debe transcribir esto
@@ -83,6 +91,8 @@ def grabar(segundos: int = 75) -> None:
         cfg = leer_config()
         cfg["escucha"]["pausa"] = pausa_previa
         guardar_config(cfg)
+        fcntl.flock(cerrojo, fcntl.LOCK_UN)
+        cerrojo.close()
     trozos = _trozos(audio)
     if len(trozos) < 8:
         sys.exit(f"Solo hay {len(trozos)} trozos con voz; habla más alto o más tiempo y repite.")

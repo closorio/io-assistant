@@ -79,6 +79,34 @@ def normalizar(texto: str) -> str:
     return "".join(c for c in unicodedata.normalize("NFD", texto.lower()) if unicodedata.category(c) != "Mn")
 
 
+def precargar_cuda() -> bool:
+    """Carga las librerías de CUDA instaladas con pip en el venv (nvidia-cublas-cu12, nvidia-cudnn-cu12): ctranslate2
+    no las busca por sí solo. True si están todas; False si falta alguna (entonces se transcribe en CPU)."""
+    import ctypes
+    import glob
+    raiz = os.path.dirname(os.path.dirname(np.__file__))
+    patrones = ("nvidia/cublas/lib/libcublasLt.so.12", "nvidia/cublas/lib/libcublas.so.12",
+                "nvidia/cudnn/lib/libcudnn.so.9")
+    try:
+        for patron in patrones:
+            rutas = glob.glob(os.path.join(raiz, patron))
+            if not rutas:
+                return False
+            ctypes.CDLL(rutas[0], mode=ctypes.RTLD_GLOBAL)
+    except OSError:
+        return False
+    return True
+
+
+def es_eco_del_prompt(texto: str, prompt: str) -> bool:
+    """Con ruido, Whisper a veces devuelve su propia frase guía (o un trozo de tres palabras o más) como si la
+    hubieras dicho tú: «Ío, un mentor de programación». Eso no es una frase tuya."""
+    palabras = re.findall(r"\w+", normalizar(texto))
+    if len(palabras) < 3:
+        return False
+    return " ".join(palabras) in " ".join(re.findall(r"\w+", normalizar(prompt)))
+
+
 def voz_media(probs) -> float:
     """Probabilidad media de voz (Silero) en los bloques de una frase que la tienen."""
     con_voz = [q for q in probs if q > UMBRAL_OFF]
@@ -143,9 +171,25 @@ class Oido:
         self.cfg_mtime = self._mtime_config()
         esc = self.cfg["escucha"]
         t0 = time.monotonic()
-        self.modelo = WhisperModel(esc["modelo"], device="cpu", compute_type="int8",
-                                   cpu_threads=max(1, min(14, (os.cpu_count() or 2) // 2)),
-                                   download_root=str(RUNTIME / "whisper"))
+        # `escucha.dispositivo`: "cuda" para transcribir en la gráfica (int8_float16, unas 3 veces más rápido que la
+        # CPU y permite un modelo grande); si CUDA no está o falla, se vuelve a la CPU y se avisa en el log.
+        dispositivo = esc.get("dispositivo", "cpu")
+        precision = esc.get("precision") or ("int8_float16" if dispositivo == "cuda" else "int8")
+        hilos = max(1, min(14, (os.cpu_count() or 2) // 2))
+        if dispositivo == "cuda" and not precargar_cuda():
+            log("CUDA pedido pero faltan sus librerías en el venv (nvidia-cublas-cu12, nvidia-cudnn-cu12): uso la CPU")
+            dispositivo, precision = "cpu", "int8"
+        try:
+            self.modelo = WhisperModel(esc["modelo"], device=dispositivo, compute_type=precision, cpu_threads=hilos,
+                                       download_root=str(RUNTIME / "whisper"))
+        except (RuntimeError, ValueError) as e:
+            if dispositivo == "cpu":
+                raise
+            log(f"no puedo usar CUDA ({str(e)[:120]}): uso la CPU")
+            dispositivo, precision = "cpu", "int8"
+            self.modelo = WhisperModel(esc["modelo"], device="cpu", compute_type="int8", cpu_threads=hilos,
+                                       download_root=str(RUNTIME / "whisper"))
+        log(f"transcripción en {dispositivo} ({precision})")
         self.vad = Vad()
         self.vad_equipo = Vad()  # el monitor de la salida lleva su propio estado
         log(f"modelo {esc['modelo']} cargado en {time.monotonic() - t0:.1f} s")
@@ -477,16 +521,22 @@ class Oido:
         except Exception as e:
             log(f"fallo al transcribir: {e}")
 
+    def vocabulario(self) -> str:
+        """Palabras que Whisper debe favorecer: tu nombre para Ío y los nombres propios de `escucha.vocabulario`
+        (tenants, herramientas, clientes), que sin ayuda transcribe como «Marlobet» o «Brutalnet»."""
+        palabras = [self.esc["nombre"]] + [str(p) for p in self.esc.get("vocabulario", []) if p]
+        return ", ".join(dict.fromkeys(palabras))
+
     def _whisper(self, audio: np.ndarray, prompt: str, hotwords: str | None) -> tuple[str, float]:
         """(texto, ms que ha tardado). Texto vacío si era ruido o una alucinación típica de Whisper."""
         t0 = time.monotonic()
         segmentos, _ = self.modelo.transcribe(
-            audio, language="es", beam_size=1, initial_prompt=prompt, hotwords=hotwords,
+            audio, language="es", beam_size=int(self.esc.get("beam", 5)), initial_prompt=prompt, hotwords=hotwords,
             condition_on_previous_text=False, vad_filter=False, without_timestamps=True)
         texto = " ".join(s.text.strip() for s in segmentos if s.no_speech_prob < 0.6 and s.avg_logprob > -1.0)
         texto = " ".join(texto.split())
         ms = (time.monotonic() - t0) * 1000
-        if not re.search(r"\w", texto) or ALUCINACIONES.search(texto):
+        if not re.search(r"\w", texto) or ALUCINACIONES.search(texto) or es_eco_del_prompt(texto, prompt):
             texto = ""
         return texto, ms
 
@@ -540,7 +590,7 @@ class Oido:
         """Con huella, del micrófono solo pasa lo que suena a tu voz. También con la escucha interna: lo que suena
         en el equipo llega por el monitor, marcado aparte, y no debe colarse por el micrófono como orden tuya.
         Solo una frase que la huella confirma como tuya calla a Ío."""
-        texto, ms = self._whisper(audio, PROMPT, self.esc["nombre"])
+        texto, ms = self._whisper(audio, PROMPT, self.vocabulario())
         if not texto:
             log(f"ruido descartado ({len(audio) / TASA:.1f} s de audio, voz {voz:.2f}, {ms:.0f} ms)")
             return
@@ -549,6 +599,11 @@ class Oido:
             log(f"huella: parecido {sim:.2f} (umbral {self.umbral_huella()})")
             if sim < self.umbral_huella():
                 log(f"voz que no es la tuya, descartada (voz {voz:.2f})")
+                return
+        if self.esc.get("eco_exige_nombre", False) and not self.despierta.search(normalizar(texto)):
+            empezo = fin - len(audio) / TASA if inicio is None else inicio
+            if empezo <= self.hablo_io + float(self.esc.get("eco_margen", 1.0)):
+                log(f"frase sin «{self.esc['nombre']}» mientras Ío hablaba: la tomo por eco, descartada")
                 return
         if self.comando_escucha(normalizar(texto)):
             return

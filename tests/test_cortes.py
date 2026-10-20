@@ -168,6 +168,24 @@ class Oido(unittest.TestCase):
             self.o.transcribir(np.zeros(16000, np.float32), 0.0, 0.8)
         self.assertEqual((self.callado, self.publicado), ([], [{"texto": "Ío, para"}]))
 
+    def test_whisper_que_repite_su_frase_guia_no_es_una_frase_tuya(self):
+        for texto, eco in (("Ío, un mentor de programación.", True),
+                           ("Conversación en español con Ío, un mentor de programación.", True),
+                           ("Ío, para", False), ("Ío, mira el mentor", False), ("un mentor", False)):
+            self.assertEqual(oido.es_eco_del_prompt(texto, oido.PROMPT), eco, texto)
+
+    def test_mientras_io_habla_solo_pasa_lo_que_le_nombra_si_se_exige(self):
+        ahora = oido.time.monotonic()
+        self.o.hablo_io, self.o.ventana_hasta, self.o.ventana_abierta = ahora, ahora + 100, True
+        audio = np.zeros(16000, np.float32)
+        for exige, texto, llega in ((True, "sigue con lo de antes", False), (True, "Ío, para", True),
+                                    (False, "sigue con lo de antes", True)):
+            self.publicado.clear()
+            self.o.cfg["escucha"]["eco_exige_nombre"] = exige
+            with self.con_huella(0.81), mock.patch.object(self.o, "_whisper", lambda *a: (texto, 10)):
+                self.o.transcribir(audio, ahora + 1, 0.8, inicio=ahora)
+            self.assertEqual(bool(self.publicado), llega, (exige, texto))
+
     def test_parrafo_calla_solo_si_alguna_frase_era_tuya(self):
         for huella, calla in ((None, False), (0.7, True)):
             self.callado.clear()
