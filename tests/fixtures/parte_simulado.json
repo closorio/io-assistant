@@ -9,6 +9,7 @@
   {"check": "meta_numero", "ambito": "buscasa", "estado": "verde", "valor": "connected, calidad green", "detalle": "número CONNECTED, calidad GREEN"},
   {"check": "meta_token", "ambito": "buscasa", "estado": "verde", "valor": "permanente", "detalle": "token sin caducidad"},
   {"check": "tls", "ambito": "buscasa", "estado": "verde", "valor": "ainmo-n8n vence en 61 días", "detalle": "ainmo-n8n.vindam.com: vence en 61 días"},
+  {"check": "sonda", "ambito": "buscasa", "estado": "verde", "valor": "responde en 11 s", "detalle": "ainmo-n8n.vindam.com: respuesta real en 11.2 s («¡Hola! Soy Diana, de Buscasa…»)", "ms": 11200},
   {"check": "n8n", "ambito": "eurotalent", "estado": "verde", "valor": "330 ms", "detalle": "healthz OK en 330 ms"},
   {"check": "wf_activo", "ambito": "eurotalent", "estado": "verde", "valor": "activo", "detalle": "2 workflow(s) activos"},
   {"check": "ejecuciones", "ambito": "eurotalent", "estado": "ambar", "valor": "3 error(es) en 24 h; última hace 0.4 h", "detalle": "3 error(es) en 24 h; última hace 0.4 h (umbral de silencio 12 h)"},
@@ -24,7 +25,8 @@
   {"check": "ejecuciones", "ambito": "vindam", "estado": "verde", "valor": "sin errores en 24 h; última hace 1.0 h", "detalle": "sin errores en 24 h; última hace 1.0 h"},
   {"check": "openai_clave", "ambito": "vindam", "estado": "verde", "valor": "clave válida", "detalle": "clave válida; clave local del tenant"},
   {"check": "vps", "ambito": "global", "estado": "na", "valor": "desactivado", "detalle": "activa ssh en parte.json"},
-  {"check": "correo", "ambito": "global", "estado": "na", "valor": "por conector", "detalle": "imap_tech=false"}
+  {"check": "correo", "ambito": "global", "estado": "na", "valor": "por conector", "detalle": "imap_tech=false"},
+  {"check": "sonda", "ambito": "vindam", "estado": "na", "valor": "desactivada", "detalle": "sonda_e2e: false en este tenant"}
  ],
  "pendientes": [
   {"tenant": "vindam", "texto": "Citas reales: falta la credencial OAuth de Google Calendar", "dias": 4, "archivo": "CLAUDE.md"},
@@ -32,5 +34,8 @@
   {"tenant": "eurotalent", "texto": "Matriz país→asesor pendiente del cliente", "dias": 0, "archivo": "docs/PASO_A_PASO_pendientes.md"}
  ],
  "trabajadores": [{"nombre": "io-mundo-simulado-193643", "resumen": "F7.6c terminada: política semilla 0 fijada como oficial."}],
- "correos": []
+ "correos": [
+  {"de": "OpenAI <noreply@tm.openai.com>", "asunto": "Your OpenAI API account has run out of credits", "fecha": "Tue, 20 Oct 2026 15:05:00 +0200", "fuente": "OpenAI", "categoria": "alerta", "nivel": "rojo", "motivo": "facturación"},
+  {"de": "Ana <ana@buscasa.com>", "asunto": "Pregunta sobre el bot", "fecha": "Tue, 20 Oct 2026 09:00:00 +0200", "fuente": "buscasa.com", "categoria": "cliente", "nivel": "verde", "motivo": "cliente"}
+ ]
 }

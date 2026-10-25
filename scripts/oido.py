@@ -44,7 +44,9 @@ UMBRAL_ON, UMBRAL_OFF = 0.4, 0.35
 ARRANQUE = 3  # bloques seguidos con voz para empezar una frase (~100 ms)
 SILENCIO_FIN = 25  # bloques sin voz para darla por terminada (~800 ms); `escucha.silencio_fin` (s) lo cambia
 PREVIO = 25  # bloques anteriores al arranque que se conservan (~800 ms)
-MIN_VOZ = 12  # bloques con voz para que merezca la pena transcribir (~400 ms)
+MIN_VOZ = 6  # bloques con voz para que merezca la pena transcribir (~200 ms); `escucha.min_voz_ms` lo cambia.
+# Con 12 (~400 ms) un «Ío» suelto seguido de pausa se tiraba sin avisar, y la frase siguiente llegaba sin el nombre
+# y se descartaba también: «se me cortan las primeras palabras» (2026-10-20).
 MAX_FRASE = 30 * TASA // BLOQUE
 BUSCAR_CORTE = 3 * TASA // BLOQUE  # al llegar a MAX_FRASE, corta en el momento más callado de los últimos 3 s
 CORTE = 8  # bloques con voz mientras Ío habla para cortarle (~250 ms)
@@ -450,7 +452,10 @@ class Oido:
                 con_io = io_suena
 
     def _soltar_frase(self, frase: list, con_voz: int, con_io: bool, mic: bool, probs: list) -> None:
-        if con_voz < MIN_VOZ:
+        minimo = int(float(self.esc.get("min_voz_ms", MIN_VOZ * BLOQUE * 1000 / TASA)) * TASA / 1000 / BLOQUE)
+        if con_voz < max(1, minimo):
+            if mic and con_voz >= 3:
+                log(f"trozo con solo {con_voz * BLOQUE * 1000 // TASA} ms de voz, no se transcribe (mínimo {minimo * BLOQUE * 1000 // TASA} ms)")
             return
         if mic:
             ahora = time.monotonic()
@@ -610,7 +615,7 @@ class Oido:
         empieza = fin if inicio is None else inicio  # vale con haber empezado a hablar dentro de la ventana
         if empieza > self.ventana_hasta and not self.despierta.search(normalizar(texto)):
             palabras = len(texto.split())
-            log(f"frase sin «{self.esc['nombre']}» fuera de conversación, descartada ({palabras} palabras)")
+            log(f"frase sin «{self.esc['nombre']}» fuera de conversación, descartada ({palabras} palabras): «{texto[:60]}»")
             if palabras >= 3:  # parece una frase de verdad, no un ruido o una palabra suelta
                 self.avisar_descarte()
             return

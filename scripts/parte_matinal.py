@@ -5,7 +5,8 @@
   narrador parte --json          salida JSON compacta: solo anomalías, contadores y pendientes (lo que lee Ío)
   narrador parte --md            imprime el informe completo en Markdown del día
   narrador parte --forzar        ignora la caché y vuelve a comprobar
-  narrador parte --solo A,B      solo esos bloques: tenants, supabase, meta, tls, tester, openai, vps, pendientes, trabajadores, correo
+  narrador parte --solo A,B      solo esos bloques: tenants, supabase, meta, tls, tester (chat de pruebas y sonda e2e), openai, vps,
+                                 pendientes, trabajadores, correo
   narrador parte --tenant T      solo ese tenant
   narrador parte --entregado     marca el parte de hoy como entregado (lo hace Ío al terminar de locutarlo)
   narrador parte --simular [F]   resultados falsos de un fixture, sin red (pruebas)
@@ -14,7 +15,8 @@
 
 Configuración no secreta en ~/.config/narrador/parte.json. Las credenciales se leen de los .env de cada tenant
 (nunca se copian ni se imprimen); lo que no existe en ningún tenant va en ~/.config/narrador/parte.env (permisos 600).
-Garantía: la única salida a la red es `peticion()`, que solo admite GET y HEAD. Nunca se llama a un webhook de producción.
+Garantía: la única salida a la red es `peticion()`, que solo admite GET y HEAD, salvo `peticion_sonda()`: un POST al canal web
+de pruebas de cada tenant (sesión `web_demo_`), que solo se usa con `sonda_e2e: true`. Nunca se escribe en WhatsApp ni en Chatwoot.
 """
 
 from __future__ import annotations
@@ -61,6 +63,17 @@ CONFIG_DEFECTO: dict = {
     "cache_horas": 2,
     "ssh": False,  # chequeo de los VPS por SSH (uptime, disco, memoria, contenedores)
     "imap_tech": False,  # correo de tech@ por IMAP solo lectura (credenciales en parte.env)
+    # Saldo prepago de OpenAI (la API no lo expone): se estima como recarga − gasto desde la recarga, con el gasto de
+    # la Costs API (clave de administración OPENAI_ADMIN_KEY en parte.env). Al recargar, actualiza recarga_usd y fecha.
+    "openai_saldo": {"recarga_usd": None, "fecha_recarga": None, "dias_ambar": 7, "dias_rojo": 2, "minimo_usd": 10},
+    # Sonda de conversación: un mensaje por el canal web de pruebas de cada tenant (sesión web_demo_, respuesta síncrona) y se
+    # comprueba que el bot contesta de verdad, no con relleno. Es el único POST del parte; apagada salvo que se active aquí
+    # (global) o en el tenant ("sonda_e2e": true/false). Sin #reset: las claves Redis de la sesión caducan solas.
+    "sonda_e2e": False,
+    "sonda_mensaje": "Hola, ¿qué servicios ofrecen?",  # una pregunta, no un «hola»: un saludo puede responderlo un menú sin modelo
+    # Correo técnico por IMAP (imap_tech): se clasifica por remitente y asunto; `clientes` son regex extra (dominios o nombres)
+    # que cuentan como correo de cliente, además de los nombres de los tenants.
+    "correo": {"clientes": []},
     "raiz_tenants": "~/Documentos/greedisgood/vindam/chatcore-n8n/tenants",
     "env": ".env",
     "config": "channels/chatcore whatsapp/config/tenant_config.json",
@@ -68,26 +81,32 @@ CONFIG_DEFECTO: dict = {
     "silencio_horas": {"laborable": 12, "finde": 48},  # «finde» se aplica sábado, domingo y lunes por la mañana
     "umbrales": {"latencia_ms": 1500, "errores_ambar": 1, "errores_rojo": 4, "tls_ambar": 21, "tls_rojo": 7,
                  "cw_sin_asignar_h": 4, "meta_token_ambar_d": 14, "meta_token_rojo_d": 3,
-                 "disco_ambar": 80, "disco_rojo": 90, "ram_libre_min": 10},
+                 "disco_ambar": 80, "disco_rojo": 90, "ram_libre_min": 10,
+                 "sonda_ms": 20000, "sonda_timeout_s": 40},
     "tenants": {
         "buscasa": {"voz": "buscasa", "supabase_tablas": ["propiedades"],
                     "workflows_extra": {"web": "5mdlzf3COOxEQDAw"},
                     "tester": "https://buscasa-demo.vindam.com",
+                    "sonda_formato": "chatwoot", "sonda_webhook": "wpp_staging",
                     "pendientes": ["CLAUDE.md", "pendiente_.txt"]},
         "eurotalent": {"voz": "eurotalent", "supabase_tablas": ["eurotalent_catalogo"],
                        "workflows_extra": {"cierre diferido": "4iemJ6X3vRWYd2x2"},
                        "tester": "https://eurotalent-demo.vindam.com",
+                       "sonda_formato": "chatwoot", "sonda_webhook": "wpp_staging", "sonda_conversacion_texto": True,
                        "pendientes": ["CLAUDE.md", "docs/PASO_A_PASO_pendientes.md"]},
         "loyal-services": {"voz": "loyal", "chatwoot": False, "meta": False,
                            "env_extra": ["channels/chatcore whatsapp/openai_key4testing.env"],
                            "supabase_tablas": ["catalogo_loyalsvc"],
                            "workflows_extra": {"seguimiento": "$N8N_FOLLOWUP_WF_ID", "lista blanca": "$N8N_WHITELIST_WF_ID"},
                            "tester": "https://loyalsvc-demo.vindam.com",
+                           "sonda_formato": "c3", "sonda_webhook": "wpp_staging", "sonda_resource_id": "7139247727",
                            "pendientes": ["CLAUDE.md", "PREPARACION_PRODUCCION_lsllc.md"]},
         "marlovet": {"voz": "marlovet", "supabase_tablas": ["marlovet_catalogo"],
-                     "tester": "https://marlovet-demo.vindam.com", "pendientes": ["CLAUDE.md"]},
+                     "tester": "https://marlovet-demo.vindam.com", "sonda_formato": "c3", "sonda_webhook": "wpp_staging",
+                     "pendientes": ["CLAUDE.md"]},
         "vindam": {"voz": "vindam", "supabase_tablas": ["vindam_catalogo"],
-                   "workflows_extra": {"web": "MQQQYpKbxBrNv5kE"}, "pendientes": ["CLAUDE.md"]},
+                   "workflows_extra": {"web": "MQQQYpKbxBrNv5kE"}, "sonda_formato": "c3", "sonda_webhook": "wpp",  # sin staging
+                   "pendientes": ["CLAUDE.md"]},
     },
 }
 
@@ -95,12 +114,23 @@ BLOQUES = ("tenants", "supabase", "meta", "tls", "tester", "openai", "vps", "pen
 NOMBRE_CHECK = {
     "n8n": "n8n", "wf_activo": "workflow", "ejecuciones": "ejecuciones", "chatwoot": "Chatwoot",
     "supabase": "Supabase", "meta_numero": "número de WhatsApp", "meta_token": "token de Meta", "tls": "certificado",
-    "tester": "chat de pruebas", "openai_clave": "clave de OpenAI", "env_permisos": "permisos del .env",
+    "tester": "chat de pruebas", "sonda": "sonda de conversación", "openai_clave": "clave de OpenAI", "openai_saldo": "saldo de OpenAI",
+    "env_permisos": "permisos del .env",
     "vps": "servidor", "trabajadores": "trabajadores", "correo": "correo técnico", "config": "configuración",
 }
 ORDEN = {"rojo": 0, "ambar": 1, "error": 2, "na": 3, "verde": 4}
 ICONO = {"verde": "✅", "ambar": "⚠️", "rojo": "❌", "na": "–", "error": "❓"}
-PATRON_CUOTA = re.compile(r"insufficient_quota|exceeded your current quota|rate limit|\b429\b", re.I)
+PATRON_CUOTA = re.compile(r"insufficient_quota|exceeded your current quota|no credits remaining|rate limit|\b429\b", re.I)
+# Lo mismo, pero en ejecuciones que acaban en «success»: el agente tiene onError=continue y responde con relleno
+# («Perdón, ¿me lo repites?») mientras el modelo devuelve «You have no credits remaining». Pasó el 2026-10-20.
+PATRON_SIN_CREDITO = re.compile(r"no credits remaining|insufficient_quota|exceeded your current quota|rate limit reached", re.I)
+# Relleno de los Handoff Handler / Escalation Response (scripts/_inject_gates_<tenant>.py): fallback_reprompt sale cuando el agente
+# devuelve vacío o falla (modelo caído o sin créditos); filler_handoff, cuando deriva a humano. Los dos son «bot roto» para la sonda.
+PATRON_RELLENO = re.compile(r"Perdón, ¿me lo repites\?|Sorry, could you repeat that\?|Dame un momento, por favor|Give me a moment, please"
+                            r"|No se pudo contactar al asistente|devolvió una respuesta vacía", re.I)
+PATRON_DUDOSO = re.compile(r"^\s*Elige una opción|Un momentito, ya te leemos|One moment, we're reading", re.I)  # menú o lock: ámbar
+PROCESO_REAL_S = 2  # una ejecución que dura menos no llegó al modelo (eventos salientes, dedupe, handoff)
+MUESTRA_SILENCIOSAS = 3  # cuántas ejecuciones «success» recientes con proceso real se inspeccionan por tenant
 
 
 # --- modelo ---------------------------------------------------------------------------------
@@ -283,6 +313,25 @@ def peticion(url: str, cabeceras: dict | None = None, timeout: float = 6, metodo
     assert metodo in ("GET", "HEAD"), "el parte es solo lectura"
     req = urllib.request.Request(url, headers=cabeceras or {}, method=metodo)
     req.add_header("User-Agent", "io-parte-matinal/1 (solo lectura)")
+    return _abrir(req, timeout, max_bytes)
+
+
+PREFIJO_SONDA = "web_demo_"  # las sesiones con este prefijo las tratan los workflows como prueba web: respuesta síncrona, sin WhatsApp ni Chatwoot
+
+
+def peticion_sonda(url: str, cuerpo: dict, cabeceras: dict | None = None, timeout: float = 40) -> Resp:
+    """El único POST del parte: un mensaje de prueba al canal web de pruebas de un tenant (`chk_sonda_e2e`).
+    Solo admite /webhook/wpp o /webhook/wpp_staging (nunca demo-web ni otros) y cuerpos con una sesión `web_demo_`;
+    nunca se usa con la sonda desactivada."""
+    assert re.fullmatch(r"/webhook/wpp(_staging)?", urllib.parse.urlparse(url).path), "la sonda solo habla con /webhook/wpp o wpp_staging"
+    assert PREFIJO_SONDA in json.dumps(cuerpo), "la sonda solo usa sesiones de prueba web"
+    req = urllib.request.Request(url, data=json.dumps(cuerpo).encode("utf-8"), headers=cabeceras or {}, method="POST")
+    req.add_header("Content-Type", "application/json")
+    req.add_header("User-Agent", "io-parte-matinal/1 (sonda e2e)")
+    return _abrir(req, timeout, 1_000_000)
+
+
+def _abrir(req: urllib.request.Request, timeout: float, max_bytes: int) -> Resp:
     t0 = time.monotonic()
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
@@ -384,6 +433,24 @@ def _fecha_iso(texto: str) -> datetime | None:
         return None
 
 
+def _duracion_s(e: dict) -> float:
+    """Segundos entre startedAt y stoppedAt de una ejecución de n8n (0 si falta alguno)."""
+    inicio, fin = _fecha_iso(e.get("startedAt") or ""), _fecha_iso(e.get("stoppedAt") or "")
+    return (fin - inicio).total_seconds() if inicio and fin else 0.0
+
+
+def modelo_sin_credito(t: Tenant, cab: dict, ultimas: list[dict]) -> tuple[str, str] | None:
+    """(nivel, startedAt) si en alguna de las últimas MUESTRA_SILENCIOSAS ejecuciones «success» con proceso real
+    (>= PROCESO_REAL_S s) el modelo falló por cuota o créditos; None si no. «rojo» si es la más reciente (sigue
+    pasando); «ambar» si fue una anterior y la última conversación ya fue bien (recargaron). Solo GET."""
+    reales = [e for e in ultimas if e.get("status") != "error" and _duracion_s(e) >= PROCESO_REAL_S]
+    for i, e in enumerate(reales[:MUESTRA_SILENCIOSAS]):
+        rd = peticion(f"{t.n8n}/api/v1/executions/{e['id']}?includeData=true", cab, timeout=12, max_bytes=4_000_000)
+        if rd.status == 200 and PATRON_SIN_CREDITO.search(rd.cuerpo.decode("utf-8", "replace")):
+            return ("rojo" if i == 0 else "ambar"), (e.get("startedAt") or "")
+    return None
+
+
 def umbral_silencio(cfg: dict, ahora: datetime | None = None) -> int:
     ahora = ahora or datetime.now()
     s = cfg["silencio_horas"]
@@ -394,7 +461,7 @@ def chk_ejecuciones(t: Tenant, cfg: dict, cab: dict, wid: str) -> Resultado:
     u = cfg["umbrales"]
     base = f"{t.n8n}/api/v1/executions?workflowId={urllib.parse.quote(wid)}"
     re_err = peticion(f"{base}&status=error&limit=20", cab, timeout=8)
-    re_ult = peticion(f"{base}&limit=1", cab, timeout=8)
+    re_ult = peticion(f"{base}&limit=30", cab, timeout=8)  # la primera es la más reciente; el resto, para muestrear
     if re_err.status != 200 or re_ult.status != 200:
         return Resultado("ejecuciones", t.nombre, "error", "no consultadas", f"API de ejecuciones: {re_err.error or re_ult.error or 'respuesta rara'}")
     ahora = datetime.now(timezone.utc)
@@ -407,8 +474,19 @@ def chk_ejecuciones(t: Tenant, cfg: dict, cab: dict, wid: str) -> Resultado:
     if errores:
         rd = peticion(f"{t.n8n}/api/v1/executions/{errores[0]['id']}?includeData=true", cab, timeout=10)
         cuota = rd.status == 200 and bool(PATRON_CUOTA.search(rd.cuerpo.decode("utf-8", "replace")))
+    silencioso = modelo_sin_credito(t, cab, ultimas)
     limite = umbral_silencio(cfg)
     partes, estado = [], "verde"
+    if silencioso:
+        nivel, inicio = silencioso
+        hace = _fecha_iso(inicio)
+        cuando = f" (hace {(ahora - hace).total_seconds() / 3600:.1f} h)" if hace else ""
+        if nivel == "rojo":
+            estado = "rojo"
+            partes.append(f"modelo sin créditos de OpenAI: el bot responde con relleno{cuando}")
+        else:
+            estado = max(estado, "ambar", key=lambda s: -ORDEN[s])
+            partes.append(f"hubo respuestas de relleno por créditos de OpenAI{cuando}; la última conversación fue bien")
     if cuota:
         estado = "rojo"
         partes.append("errores de cuota de OpenAI")
@@ -550,6 +628,99 @@ def chk_tester(t: Tenant, cfg: dict) -> list[Resultado]:
     return [Resultado("tester", t.nombre, latencia(r.ms, cfg["umbrales"]["latencia_ms"]), f"{r.ms} ms", f"login OK en {r.ms} ms", r.ms)]
 
 
+def sonda_activa(t: Tenant, cfg: dict) -> bool:
+    propio = t.cfg.get("sonda_e2e")
+    return bool(cfg.get("sonda_e2e")) if propio is None else bool(propio)
+
+
+def _fnv1a32(texto: str) -> int:
+    h = 0x811C9DC5
+    for b in texto.encode("utf-8"):
+        h = ((h ^ b) * 0x01000193) & 0xFFFFFFFF
+    return h
+
+
+def cuerpo_sonda(t: Tenant, cfg: dict, sid: str, mensaje: str) -> tuple[dict, dict]:
+    """(cuerpo, cabeceras) del mensaje de prueba. `c3`: contrato plano (loyal, marlovet, vindam). `chatwoot`: evento agent_bot
+    como el que fabrica el chat-tester de buscasa (conversation.id entero por fnv1a; en eurotalent, texto)."""
+    if t.cfg.get("sonda_formato") == "c3":
+        cuerpo = {"attention_id": sid, "message": mensaje, "channel": "WHATSAPP", "customer_id": "10000000000",
+                  "resource_id": t.cfg.get("sonda_resource_id") or t["WA_PHONE_NUMBER_ID"] or "0"}
+        return cuerpo, ({"X-Api-Key": t["C3_WEBHOOK_APIKEY"]} if t["C3_WEBHOOK_APIKEY"] else {})
+    mid = int(time.time() * 100)  # único global: el dedupe de Chatwoot (cwmsg_seen_{id}) no caduca
+    h = _fnv1a32(sid)
+    conv = sid if t.cfg.get("sonda_conversacion_texto") else 1_000_000 + h % 8_000_000
+    sender = {"name": "Visitante Web", "phone_number": "+5218100" + f"{h % 1_000_000:06d}", "type": "contact"}
+    mensaje_cw = {"id": mid, "content": mensaje, "content_type": "text", "message_type": 0, "content_attributes": {},
+                  "sender_type": "Contact", "sender": sender, "conversation_id": conv}
+    cuerpo = {"event": "message_created", "id": mid, "content": mensaje, "content_type": "text", "message_type": 0,
+              "content_attributes": {}, "sender": sender, "account": {"id": t.cfg.get("cw_account", cfg["cw_account"]), "name": t.nombre},
+              "conversation": {"id": conv, "channel": "Channel::Whatsapp", "can_reply": True, "status": "open", "labels": [], "inbox_id": 2,
+                               "messages": [mensaje_cw],
+                               "contact_inbox": {"id": 1, "contact_id": 1, "inbox_id": 2, "source_id": sid, "hmac_verified": False}}}
+    return cuerpo, {}
+
+
+def texto_respuesta_sonda(d) -> tuple[str | None, str]:
+    """(texto, nota). vindam/marlovet/loyal responden {message,…}; buscasa/eurotalent {status, response:{text, bubbles}}.
+    En buscasa, `status: ok` sin `response` es un silencio buscado (humano activo, storm guard, dedupe), no un error."""
+    if not isinstance(d, dict):
+        return None, "no es JSON"
+    if isinstance(d.get("message"), str):
+        return d["message"].strip(), ""
+    resp = d.get("response")
+    if isinstance(resp, dict):
+        texto = str(resp.get("text") or "\n".join(b for b in (resp.get("bubbles") or []) if isinstance(b, str))).strip()
+        if texto:
+            return texto, ""
+    if d.get("status") == "ok":  # sin `response` o con texto vacío: el nodo «human agent is handling», storm guard o dedupe
+        return None, "silencio del flujo"
+    return None, ""
+
+
+def chk_sonda_e2e(t: Tenant, cfg: dict) -> list[Resultado]:
+    """Conversación de punta a punta por el canal web de pruebas: un mensaje con sesión web_demo_ y una respuesta real.
+    Rojo si no responde o responde con relleno (modelo caído o sin créditos); ámbar si tarda, es dudosa o el canal no existe."""
+    if not sonda_activa(t, cfg):
+        return [Resultado("sonda", t.nombre, "na", "desactivada",
+                          'pon "sonda_e2e": true en parte.json (global o en el tenant) para conversar con el bot por el canal web de pruebas')]
+    formato = t.cfg.get("sonda_formato")
+    if not t.n8n or formato not in ("c3", "chatwoot"):
+        return [Resultado("sonda", t.nombre, "na", "sin canal web", "falta N8N_BASE_URL" if not t.n8n else "falta sonda_formato (c3 | chatwoot) en la configuración del tenant")]
+    u = cfg["umbrales"]
+    sid = f"{PREFIJO_SONDA}parte_{datetime.now():%Y%m%d_%H%M%S}"
+    mensaje = t.cfg.get("sonda_mensaje") or cfg["sonda_mensaje"]
+    ruta = t.cfg.get("sonda_webhook") or "wpp"
+    url = f"{t.n8n}/webhook/{ruta}"
+    cuerpo, cab = cuerpo_sonda(t, cfg, sid, mensaje)
+    r = peticion_sonda(url, cuerpo, cab, timeout=float(u.get("sonda_timeout_s", 40)))
+    host = url.split("//")[-1].split("/")[0]
+    seg = r.ms / 1000
+
+    def res(estado: str, valor: str, detalle: str) -> list[Resultado]:
+        return [Resultado("sonda", t.nombre, estado, valor, detalle, r.ms)]
+
+    if r.status == 404:
+        return res("ambar", "canal de pruebas no registrado",
+                   f"{host}: 404 en /webhook/{ruta}; ¿workflow de staging inactivo? pon sonda_webhook: wpp si quieres sondear producción")
+    if r.status != 200:
+        return res("rojo", "sin respuesta", f"{host}: {r.error or r.status} en {seg:.0f} s")
+    texto, nota = texto_respuesta_sonda(r.json())
+    if nota == "silencio del flujo":
+        return res("ambar", "silencio del flujo", f"{host}: respondió 200 sin texto (humano activo, storm guard o dedupe): comprobar a mano")
+    if nota == "no es JSON":
+        return res("ambar", "respuesta no reconocida", f"{host}: 200 con un cuerpo que no es JSON ({r.cuerpo[:60]!r})")
+    if not texto:
+        return res("rojo", "sin respuesta", f"{host}: 200 con mensaje vacío en {seg:.0f} s (en loyal, también si X-Api-Key no vale)")
+    if PATRON_RELLENO.search(texto):
+        return res("rojo", "relleno: bot roto", f"{host}: respondió con relleno «{texto[:60]}» en {seg:.0f} s: modelo caído o sin créditos")
+    if PATRON_DUDOSO.search(texto):
+        return res("ambar", "respuesta dudosa", f"{host}: «{texto[:60]}» en {seg:.0f} s")
+    if r.ms >= int(u.get("sonda_ms", 20000)):
+        return res("ambar", f"lenta, {seg:.0f} s", f"{host}: respuesta real pero en {seg:.1f} s (umbral {int(u.get('sonda_ms', 20000)) // 1000} s)")
+    return res("verde", f"responde en {seg:.0f} s", f"{host}: respuesta real en {seg:.1f} s («{texto[:60]}»)")
+
+
 def chk_openai(t: Tenant, cfg: dict) -> list[Resultado]:
     clave = t["OPENAI_API_KEY"]
     if not clave:
@@ -563,6 +734,67 @@ def chk_openai(t: Tenant, cfg: dict) -> list[Resultado]:
     if r.status == 429:
         return [Resultado("openai_clave", t.nombre, "rojo", "sin cuota", f"OpenAI responde 429 (cuota o límite); {nota}", r.ms)]
     return [Resultado("openai_clave", t.nombre, "error", "no consultada", f"OpenAI: {r.error or r.status}", r.ms)]
+
+
+def costes_openai(clave_admin: str, desde: datetime) -> tuple[dict[str, float], Resp]:
+    """Gasto diario (USD) de la organización desde `desde`, por la Costs API (solo GET, clave de administración).
+    Devuelve ({'AAAA-MM-DD': usd}, última respuesta); el dict va vacío si la API no responde 200."""
+    cab = {"Authorization": f"Bearer {clave_admin}"}
+    por_dia: dict[str, float] = {}
+    url = f"https://api.openai.com/v1/organization/costs?start_time={int(desde.timestamp())}&bucket_width=1d&limit=180"
+    r = Resp()
+    for _ in range(4):  # páginas
+        r = peticion(url, cab, timeout=12)
+        if r.status != 200:
+            return {}, r
+        pagina = r.json() or {}
+        for cubo in pagina.get("data", []):
+            dia = datetime.fromtimestamp(int(cubo.get("start_time", 0)), timezone.utc).strftime("%Y-%m-%d")
+            por_dia[dia] = por_dia.get(dia, 0.0) + sum(float((x.get("amount") or {}).get("value") or 0) for x in cubo.get("results", []))
+        if not pagina.get("has_more") or not pagina.get("next_page"):
+            break
+        url = f"https://api.openai.com/v1/organization/costs?start_time={int(desde.timestamp())}&bucket_width=1d&limit=180&page={pagina['next_page']}"
+    return por_dia, r
+
+
+def chk_openai_saldo(secretos: dict, cfg: dict) -> list[Resultado]:
+    """Avisa ANTES de que OpenAI se quede sin créditos. La API no expone el saldo prepago, así que se estima:
+    saldo ≈ recarga_usd − gasto desde fecha_recarga (Costs API), y días restantes ≈ saldo / gasto medio de los
+    últimos 7 días. Sin OPENAI_ADMIN_KEY no se puede consultar; sin recarga configurada solo se informa del ritmo."""
+    s = cfg.get("openai_saldo") or {}
+    clave = (secretos.get("OPENAI_ADMIN_KEY") or "").strip()
+    if not clave:
+        return [Resultado("openai_saldo", "global", "na", "sin clave de administración",
+                          "pon OPENAI_ADMIN_KEY (clave de administración de la organización, solo lectura de costes) en parte.env")]
+    ahora = datetime.now(timezone.utc)
+    recarga = s.get("recarga_usd")
+    fecha = _fecha_iso(str(s.get("fecha_recarga") or ""))
+    desde = min(fecha, ahora - timedelta(days=8)) if (recarga and fecha) else ahora - timedelta(days=8)
+    por_dia, r = costes_openai(clave, desde)
+    if r.status != 200:
+        motivo = {401: "clave rechazada (401)", 403: "la clave no tiene permiso de costes (403): debe ser de administración"}.get(r.status, f"{r.error or r.status}")
+        return [Resultado("openai_saldo", "global", "error" if r.status not in (401, 403) else "rojo", "no consultado", f"Costs API: {motivo}", r.ms)]
+    hoy = ahora.strftime("%Y-%m-%d")
+    ultimos7 = [d for d in sorted(por_dia) if d != hoy and _fecha_iso(d + "T00:00:00+00:00") >= ahora - timedelta(days=8)][-7:]
+    ritmo = sum(por_dia[d] for d in ultimos7) / max(1, len(ultimos7))
+    gasto_hoy = por_dia.get(hoy, 0.0)
+    partes = [f"gasto hoy {gasto_hoy:.2f} $", f"ritmo {ritmo:.2f} $/día ({len(ultimos7)} días)"]
+    if not (recarga and fecha):
+        return [Resultado("openai_saldo", "global", "ambar", "saldo desconocido",
+                          "; ".join(partes) + "; para estimar el saldo pon openai_saldo.recarga_usd y fecha_recarga en parte.json al recargar", r.ms)]
+    gasto = sum(v for d, v in por_dia.items() if d >= fecha.strftime("%Y-%m-%d"))
+    saldo = float(recarga) - gasto
+    dias = (saldo / ritmo) if ritmo > 0 else None
+    partes = [f"saldo ≈ {saldo:.0f} $ (recarga {float(recarga):.0f} $ el {fecha.strftime('%d/%m')}, gastados {gasto:.2f} $)"] + partes
+    if dias is not None:
+        partes.insert(1, f"≈ {dias:.0f} días al ritmo actual")
+    if saldo <= float(s.get("minimo_usd", 10)) or (dias is not None and dias <= float(s.get("dias_rojo", 2))):
+        estado, valor = "rojo", f"saldo ≈ {saldo:.0f} $" + (f", ≈ {dias:.0f} días" if dias is not None else "")
+    elif dias is not None and dias <= float(s.get("dias_ambar", 7)):
+        estado, valor = "ambar", f"≈ {dias:.0f} días de saldo"
+    else:
+        estado, valor = "verde", f"≈ {saldo:.0f} $" + (f", ≈ {dias:.0f} días" if dias is not None else "")
+    return [Resultado("openai_saldo", "global", estado, valor, "; ".join(partes), r.ms)]
 
 
 def chk_vps(host: str, contenedores: list[str], cfg: dict) -> Resultado:
@@ -629,8 +861,78 @@ def chk_trabajadores(desde: float) -> tuple[list[Resultado], list[dict]]:
     return res, nuevos
 
 
+PROVEEDORES = [("OpenAI", r"openai\.com"), ("Meta", r"facebookmail\.com|fb\.com|meta\.com|whatsapp\.com|business\.facebook\.com"),
+               ("Supabase", r"supabase\.(io|com)"), ("n8n", r"n8n\.(io|cloud)"), ("Chatwoot", r"chatwoot\.com"), ("Hostinger", r"hostinger\.(com|es)"),
+               ("Retell", r"retellai\.com"), ("Google", r"google\.com|accounts\.google"), ("GitHub", r"github\.com"), ("Cloudflare", r"cloudflare\.com"),
+               ("Anthropic", r"anthropic\.com"), ("Stripe", r"stripe\.com")]
+PATRON_FACTURACION = re.compile(r"out of credits|no credits|insufficient (funds|credits)|usage limit (reached|exceeded)|hard limit reached|quota exceeded"
+                                r"|billing (issue|problem|failed)|payment (failed|declined|unsuccessful|required)|pago (rechazado|fallido|pendiente)"
+                                r"|past due|overdue|créditos? agotad|sin créditos|saldo insuficiente", re.I)
+PATRON_ALERTA = re.compile(r"alert|alerta|incident|incidente|outage|degrad|downtime|unavailable|paused?|pausad|error|fail|quality|calidad|template"
+                           r"|plantilla|policy|política|restrict|violation|infring|warning|advertencia|expir|caduc|renewal (failed|unsuccessful)"
+                           r"|renovación fallida|security|seguridad|certificate|certificado|unusual|sospechos|verify your|disabled|deshabilit|suspend"
+                           r"|rate limit|exposed|leaked|compromised|breach|revoked|expuest|filtrad", re.I)
+PATRON_FACTURA = re.compile(r"\bfactura|\binvoice|receipt|recibo|payment received|pago recibido|order confirmation|your order", re.I)
+PATRON_RUIDO = re.compile(r"newsletter|boletín|webinar|digest|introducing|what'?s new|novedades|unsubscribe|promo|% off|descuento|product update"
+                          r"|release notes|changelog", re.I)
+ORDEN_CORREO = {"rojo": 0, "ambar": 1, "cliente": 2, "factura": 3, "otro": 4}
+
+
+def clasificar_correo(de: str, asunto: str, clientes=()) -> dict:
+    """Solo con cabeceras. Proveedor conocido: facturación/créditos → alerta roja; otra alerta → ámbar; boletines nunca son alerta.
+    Remitente desconocido: factura; si parece alerta, ámbar (podría ser phishing: nunca rojo); cliente (regex de `clientes`
+    sobre remitente o asunto); resto «otro»."""
+    direccion = (email.utils.parseaddr(de)[1] or de).lower()
+    dominio = direccion.rsplit("@", 1)[-1] if "@" in direccion else direccion
+    fuente = next((nombre for nombre, patron in PROVEEDORES if re.search(rf"(^|\.)({patron})$", dominio)), None)  # anclado: nada de openai.com.evil.ru
+    texto = f"{de} {asunto}"
+    if fuente:
+        if PATRON_RUIDO.search(asunto):
+            return {"fuente": fuente, "categoria": "otro", "nivel": "verde", "motivo": "boletín"}
+        if PATRON_FACTURACION.search(asunto):
+            return {"fuente": fuente, "categoria": "alerta", "nivel": "rojo", "motivo": "facturación"}
+        if PATRON_ALERTA.search(asunto):
+            return {"fuente": fuente, "categoria": "alerta", "nivel": "ambar", "motivo": "aviso del proveedor"}
+        if PATRON_FACTURA.search(asunto):
+            return {"fuente": fuente, "categoria": "factura", "nivel": "verde", "motivo": "factura"}
+        return {"fuente": fuente, "categoria": "otro", "nivel": "verde", "motivo": ""}
+    if PATRON_FACTURA.search(asunto):
+        return {"fuente": dominio, "categoria": "factura", "nivel": "verde", "motivo": "factura"}
+    if PATRON_FACTURACION.search(asunto) or PATRON_ALERTA.search(asunto):  # antes que «cliente»: un fallo desde el propio dominio también avisa
+        return {"fuente": dominio, "categoria": "alerta", "nivel": "ambar", "motivo": "aviso de remitente desconocido"}
+    if any(re.search(c, texto, re.I) for c in clientes if c):
+        return {"fuente": dominio, "categoria": "cliente", "nivel": "verde", "motivo": "cliente"}
+    return {"fuente": dominio, "categoria": "otro", "nivel": "verde", "motivo": ""}
+
+
+def resumen_correos(correos: list[dict]) -> Resultado:
+    rojas = [c for c in correos if c.get("nivel") == "rojo"]
+    ambar = [c for c in correos if c.get("nivel") == "ambar"]
+    clientes = [c for c in correos if c.get("categoria") == "cliente"]
+    alertas = rojas + ambar
+
+    def fuentes(lista):
+        return ", ".join(dict.fromkeys(c["fuente"] for c in lista))
+
+    def plural(n, palabra):
+        return f"{n} {palabra}{'s' if n != 1 else ''}"
+
+    if rojas:
+        estado, valor = "rojo", f"{plural(len(rojas), 'alerta')} de facturación: {fuentes(rojas)}" + (f"; {len(ambar)} más" if ambar else "")
+    elif ambar:
+        estado, valor = "ambar", f"{plural(len(ambar), 'alerta')}: {fuentes(ambar)}"
+    else:
+        estado, valor = "verde", f"{len(correos)} en 24 h, sin alertas" + (f"; {len(clientes)} de cliente" if clientes else "")
+    piezas = [f"{c['fuente']} ({c['motivo']}): «{c['asunto'][:60]}»" for c in alertas]
+    conteo = {cat: sum(1 for c in correos if c.get("categoria") == cat) for cat in ("alerta", "cliente", "factura", "otro")}
+    piezas.append(", ".join(f"{n} {cat}" for cat, n in conteo.items() if n) or "sin correos")
+    return Resultado("correo", "global", estado, valor, "; ".join(piezas))
+
+
 def chk_correo(secretos: dict, cfg: dict) -> tuple[list[Resultado], list[dict]]:
-    """IMAP de solo lectura: cabeceras de las últimas 24 h, nunca marca como leído ni descarga cuerpos."""
+    """IMAP de solo lectura: cabeceras de las últimas 24 h, nunca marca como leído ni descarga cuerpos. Cada correo sale
+    clasificado (`clasificar_correo`) y la lista ordenada: alertas rojas, ámbar, clientes, facturas, resto."""
+    clientes = list(cfg["tenants"]) + [t.get("voz") for t in cfg["tenants"].values() if t.get("voz")] + list((cfg.get("correo") or {}).get("clientes") or [])
     usuario, clave = secretos.get("TECH_IMAP_USER"), secretos.get("TECH_IMAP_PASS")
     host = secretos.get("TECH_IMAP_HOST", "imap.gmail.com")
     if not usuario or not clave:
@@ -648,12 +950,13 @@ def chk_correo(secretos: dict, cfg: dict) -> tuple[list[Resultado], list[dict]]:
             if ok != "OK" or not datos or not isinstance(datos[0], tuple):
                 continue
             msg = email.message_from_bytes(datos[0][1])
-            correos.append({"de": _decodificar(msg.get("From", "")), "asunto": _decodificar(msg.get("Subject", ""))[:120],
-                            "fecha": msg.get("Date", "")[:31]})
+            de, asunto = _decodificar(msg.get("From", "")), _decodificar(msg.get("Subject", ""))[:120]
+            correos.append({"de": de, "asunto": asunto, "fecha": msg.get("Date", "")[:31], **clasificar_correo(de, asunto, clientes)})
         m.logout()
     except (imaplib.IMAP4.error, OSError, socket.timeout) as e:
         return [Resultado("correo", "global", "error", "no leído", f"IMAP: {type(e).__name__}: {str(e)[:80]}")], []
-    return [Resultado("correo", "global", "verde", f"{len(correos)} en 24 h", f"{len(correos)} correos en las últimas 24 h")], correos
+    correos.sort(key=lambda c: ORDEN_CORREO[c["nivel"] if c["nivel"] != "verde" else c["categoria"] if c["categoria"] in ORDEN_CORREO else "otro"])
+    return [resumen_correos(correos)], correos
 
 
 def _decodificar(texto: str) -> str:
@@ -855,6 +1158,7 @@ def ejecutar(cfg: dict, solo: set[str], solo_tenant: str | None, secretos: dict,
     if "_error" in secretos:
         resultados.append(Resultado("config", "global", "ambar", "parte.env ignorado", secretos["_error"]))
     tareas: list[tuple[str, callable]] = []
+    sondas: list[tuple[str, callable]] = []  # van las primeras: tardan 10-20 s y no deben esperar detrás de las tareas limitadas por host
     limites: dict[str, threading.Semaphore] = {}
 
     def con_limite(host: str, fn, *a):
@@ -872,11 +1176,22 @@ def ejecutar(cfg: dict, solo: set[str], solo_tenant: str | None, secretos: dict,
             tareas.append((f"meta {t.nombre}", lambda t=t: chk_meta(t, cfg)))
         if "tester" in solo:
             tareas.append((f"tester {t.nombre}", lambda t=t: con_limite(t.host_vps, chk_tester, t, cfg)))
+            if sonda_activa(t, cfg):  # sin con_limite: una petición de 10-20 s no debe retener el semáforo del host
+                sondas.append((f"sonda {t.nombre}", lambda t=t: chk_sonda_e2e(t, cfg)))
+            elif cfg.get("sonda_e2e"):
+                resultados.append(Resultado("sonda", t.nombre, "na", "desactivada", "sonda_e2e: false en este tenant"))
         if "openai" in solo:
             tareas.append((f"openai {t.nombre}", lambda t=t: chk_openai(t, cfg)))
         if "tls" in solo:
             for h in hosts_tls(t):
                 tareas.append((f"tls {h}", lambda h=h, t=t: [chk_tls(h, t.nombre, cfg)]))
+    hay_sonda = bool(sondas)
+    tareas = sondas + tareas
+    if "tester" in solo and tenants and not hay_sonda and not cfg.get("sonda_e2e"):
+        resultados.append(Resultado("sonda", "global", "na", "desactivada",
+                                    'activa "sonda_e2e": true en parte.json para conversar con el bot de cada tenant por su canal web de pruebas'))
+    if "openai" in solo:
+        tareas.append(("openai saldo", lambda: chk_openai_saldo(secretos, cfg)))
     if "vps" in solo and cfg.get("ssh"):
         por_host: dict[str, list[str]] = {}
         for t in tenants:
@@ -892,10 +1207,11 @@ def ejecutar(cfg: dict, solo: set[str], solo_tenant: str | None, secretos: dict,
     elif "correo" in solo:
         resultados.append(Resultado("correo", "global", "na", "por conector", "imap_tech=false: el correo de tech@ lo mira Ío con el conector de Gmail"))
 
+    limite_pool = 60 if hay_sonda else 45  # la sonda tarda 10-20 s y puede esperar su turno
     with cf.ThreadPoolExecutor(max_workers=12) as pool:
         futuros = {pool.submit(fn): nombre for nombre, fn in tareas}
         try:
-            for f in cf.as_completed(futuros, timeout=45):
+            for f in cf.as_completed(futuros, timeout=limite_pool):
                 nombre = futuros[f]
                 try:
                     salida = f.result()
@@ -908,7 +1224,7 @@ def ejecutar(cfg: dict, solo: set[str], solo_tenant: str | None, secretos: dict,
         except cf.TimeoutError:
             for f, nombre in futuros.items():
                 if not f.done():
-                    resultados.append(Resultado(nombre.split()[0], nombre.split()[-1], "error", "tiempo agotado", "no respondió en 45 s"))
+                    resultados.append(Resultado(nombre.split()[0], nombre.split()[-1], "error", "tiempo agotado", f"no respondió en {limite_pool} s"))
         pool.shutdown(wait=False, cancel_futures=True)
 
     pendientes = chk_pendientes(tenants, fecha_operativa(hora_corte=int(cfg["hora_corte"]))) if "pendientes" in solo else []
@@ -1003,7 +1319,7 @@ def a_markdown(parte: dict) -> str:
     res: list[Resultado] = parte["resultados"]
     voces = parte["tenants"]
     L = [f"# Parte matinal — {parte['fecha']} {parte['hora']}", "", f"**Semáforo: {parte['semaforo'].upper()}** — {parte['resumen_voz']}", ""]
-    columnas = ["n8n", "wf_activo", "ejecuciones", "chatwoot", "supabase", "meta_numero", "meta_token", "tls", "tester", "openai_clave"]
+    columnas = ["n8n", "wf_activo", "ejecuciones", "chatwoot", "supabase", "meta_numero", "meta_token", "tls", "tester", "sonda", "openai_clave"]
     L.append("| tenant | " + " | ".join(NOMBRE_CHECK[c] for c in columnas) + " |")
     L.append("|---|" + "---|" * len(columnas))
     for nombre, voz in voces.items():
@@ -1025,7 +1341,8 @@ def a_markdown(parte: dict) -> str:
     if parte.get("memoria"):
         L += ["", "## Memoria de Ío", "", f"- {parte['memoria']}"]
     if parte["correos"]:
-        L += ["", "## Correo técnico (últimas 24 h, solo cabeceras)", ""] + [f"- {c['fecha']} · {c['de']} · {c['asunto']}" for c in parte["correos"]]
+        L += ["", "## Correo técnico (últimas 24 h, solo cabeceras)", ""]
+        L += [f"- {ICONO.get(c.get('nivel'), '–')} [{c.get('categoria', '?')}] {c.get('fuente', '')} · {c['fecha']} · {c['de']} · {c['asunto']}" for c in parte["correos"]]
     nc = [r for r in res if r.estado in ("na", "error")]
     if nc:
         L += ["", "## No comprobado", ""] + [f"- {voces.get(r.ambito, r.ambito)} · {NOMBRE_CHECK.get(r.check, r.check)}: {r.detalle or r.valor}" for r in nc]
@@ -1036,7 +1353,9 @@ def a_markdown(parte: dict) -> str:
           "- La clave de OpenAI comprobada es la local del tenant (scripts, juez); la de los bots vive como credencial dentro de n8n. "
           "La señal real de cuota son los errores 429/insufficient_quota en las ejecuciones.",
           "- Festivos no se contemplan en el umbral de silencio; sábado, domingo y lunes usan el umbral de fin de semana.",
-          "- Nunca se envía nada: solo GET/HEAD, lectura por SSH e IMAP en modo solo lectura. Webhooks de producción, QVET y la bandeja QA no se tocan."]
+          "- Nunca se envía nada: solo GET/HEAD, lectura por SSH e IMAP en modo solo lectura. Webhooks de producción, QVET y la bandeja QA no se tocan.",
+          "- La sonda de conversación (si está activa) es el único POST: una sesión `web_demo_` al canal web de pruebas del tenant; "
+          "no pasa por WhatsApp ni por Chatwoot y sus claves de Redis caducan solas."]
     return "\n".join(L) + "\n"
 
 
@@ -1063,12 +1382,12 @@ def generar(cfg: dict, solo: set[str], solo_tenant: str | None, simular: Path | 
     desde = float(anterior.get("inicio_ts") or 0) if anterior.get("fecha") != hoy.isoformat() else float(anterior.get("desde_ts") or 0)
     desde = desde or ahora.timestamp() - 86400
     PARTES.mkdir(parents=True, exist_ok=True)
-    parcial = bool(solo_tenant or solo != set(BLOQUES))
+    parcial = bool(solo_tenant or solo != set(BLOQUES) or simular)  # una simulación nunca sustituye al parte real ni toca el marcador
     if not parcial:
         guardar_marcador({"fecha": hoy.isoformat(), "hora": ahora.strftime("%H:%M"), "estado": "en_curso", "inicio_ts": ahora.timestamp(),
                           "desde_ts": desde, "session_id": sesion_io(), "pid": os.getpid(), "entregado": False})
     estado_final = "fallido"
-    sufijo = "" if not parcial else "-parcial" + (f"-{solo_tenant}" if solo_tenant else "")
+    sufijo = "-simulado" if simular else "" if not parcial else "-parcial" + (f"-{solo_tenant}" if solo_tenant else "")
     try:
         secretos = cargar_secretos_parte()
         parte = cargar_simulacion(simular) if simular else ejecutar(cfg, solo, solo_tenant, secretos, desde)
