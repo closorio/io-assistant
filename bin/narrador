@@ -21,6 +21,8 @@
   narrador guia [TEMA]       (guías de Ío: sesiones, proyectos, escritorio, personal, mentor)
   narrador parte [--json|--md|--forzar|--solo A,B|--tenant T|--entregado|--simular|--estado]   (parte matinal: salud de producción y pendientes, solo lectura)
   narrador memoria revisar [--json] | indices | buscar PALABRAS | informes | guardar [MENSAJE] [--auto]   (memoria de Ío: vault de notas)
+  narrador decisiones listar [-n N] [--sesion ID] [--proyecto P] [--desde AAAA-MM-DD] [--tipo T] [--json] | ruta
+                             (registro de decisiones: lo que Claude iba a hacer y por qué)
 """
 
 import json
@@ -231,6 +233,9 @@ def main(args: list[str]) -> None:
     elif cmd == "memoria":
         import memoria  # aquí y no arriba: un fallo en memoria.py no debe tumbar la voz ni el oído
         sys.exit(memoria.main(resto))
+    elif cmd == "decisiones":
+        import decisiones
+        sys.exit(decisiones.main(resto))
     else:
         sys.exit(__doc__.strip())
 

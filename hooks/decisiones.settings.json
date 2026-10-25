@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit|ExitPlanMode|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 /home/seppuq/Documentos/thereisnospoon/io-assistant/scripts/decisiones.py",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

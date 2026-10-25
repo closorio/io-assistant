@@ -56,6 +56,25 @@ Después, en VS Code, recarga la ventana (`Developer: Reload Window`).
 
 La memoria de Ío (`memory: user` en `agents/io.md`) vive donde Claude Code la fija, `~/.claude/agent-memory/narrador-io/`, y `~/Documentos/io-memoria` es un enlace para abrirla en Obsidian («Abrir carpeta como vault», solo con plugins del núcleo). Es un vault de notas en carpetas (`usuario/`, `reglas/`, `proyectos/`, `decisiones/`, `personas/`, `trabajadores/`, `aprendizaje/`, `referencias/`, `_archivo/`), cada una con frontmatter fijo y un `_indice.md` generado; `MEMORY.md` es el índice que Claude Code inyecta al arrancar y `ram.md` la memoria de trabajo. Es un repo git local sin remoto (la etiqueta `pre-vault` guarda el estado anterior a la migración del 2026-10-17). Reglas y formato: el `README.md` del vault y la skill [io-memoria](skills/io-memoria/SKILL.md). Herramientas: `narrador memoria revisar | indices | buscar | informes | guardar | evaluar` ([scripts/memoria.py](scripts/memoria.py)). Los informes de los trabajadores no entran en el vault: Ío destila de ellos un digest de hechos en `trabajadores/`.
 
+### Parte matinal
+
+En el primer arranque del día Ío da el parte: salud de producción de los tenants de chatcore (n8n, workflows, ejecuciones, Chatwoot, Supabase, Meta, certificados, chat de pruebas y sonda de conversación), saldo de OpenAI, servidores, pendientes de los `CLAUDE.md` de cada tenant, trabajadores y correo técnico, en tres o cuatro frases de voz con semáforo. Lo calcula `bin/narrador parte` ([scripts/parte_matinal.py](scripts/parte_matinal.py)), que es de solo lectura: GET, SSH de lectura e IMAP en modo lectura. La única excepción, apagada por defecto, es la **sonda de conversación**: un mensaje de prueba con sesión `web_demo_` al canal web de pruebas de cada tenant para comprobar que el bot contesta de verdad y no con relleno (así se habría visto el 2026-10-20 que OpenAI se había quedado sin créditos). Guía de Ío: [skills/io-parte-matinal/SKILL.md](skills/io-parte-matinal/SKILL.md). Pruebas: `.runtime/venv-tests/bin/python -m pytest -q tests`.
+
+Configuración no secreta en `~/.config/narrador/parte.json` (todo opcional; los valores por defecto están en `CONFIG_DEFECTO`):
+
+| Clave | Para qué sirve |
+|---|---|
+| `hora_corte`, `cache_horas` | Hora a la que empieza el día operativo (5) y horas que se reutiliza un parte (2) |
+| `ssh` | `true` para comprobar disco, memoria y contenedores de los VPS por SSH |
+| `imap_tech` | `true` para leer el correo de tech@ por IMAP y clasificarlo (alertas de facturación → rojo, otros avisos → ámbar) |
+| `correo.clientes` | Regex extra (dominios, nombres) que cuentan como correo de cliente |
+| `openai_saldo` | `recarga_usd` y `fecha_recarga` de la última recarga, para estimar saldo y días restantes con la Costs API |
+| `sonda_e2e`, `sonda_mensaje` | Activa la sonda de conversación (por defecto `false`) y la pregunta que hace |
+| `umbrales` | Latencias, errores, días de certificado, `sonda_ms` (20000) y `sonda_timeout_s` (40) |
+| `raiz_tenants`, `tenants.<t>` | Carpeta de los tenants y, por tenant: `voz`, `tester`, `supabase_tablas`, `pendientes`, `sonda_e2e`, `sonda_formato` (`c3` o `chatwoot`), `sonda_webhook` (`wpp_staging` o `wpp`), `sonda_mensaje`, `sonda_resource_id` |
+
+Credenciales que no están en ningún `.env` de tenant, en `~/.config/narrador/parte.env` (permisos 600, si no se ignora): `OPENAI_ADMIN_KEY` (clave de administración, solo costes), `TECH_IMAP_USER`, `TECH_IMAP_PASS` (contraseña de aplicación de Google) y `TECH_IMAP_HOST` (por defecto `imap.gmail.com`). Nada de eso sale en informes ni en el JSON.
+
 ## Mentor por voz en una sesión aparte
 
 1. Trabaja en tu sesión de siempre, la **ejecutora**, sin estilo de voz.
@@ -103,6 +122,34 @@ Lo que conviene saber:
 - **Con `/clear` en la ejecutora**, el visor salta solo a la sesión nueva, salvo que lo hayas fijado con un ID.
 
 El visor y el oído también se pueden usar a mano: `bin/narrador sesiones`, `bin/narrador seguir [ID]`, `bin/narrador escuchar`, `bin/narrador escucha [estado|pausa|activar|alternar|parar]`, `bin/narrador escucha interna [activar|desactivar|alternar|estado]` y `bin/narrador huella …`.
+
+## Captura de decisiones
+
+Antes de una decisión de calado, Claude tiene que decir por qué, y la razón queda apuntada. Lo hace un hook `PreToolUse` ([scripts/decisiones.py](scripts/decisiones.py)) que vigila:
+
+- **Planes:** `Write` o `Edit` sobre `~/.claude/plans/*.md`, y `ExitPlanMode`.
+- **Trabajadores:** un `Bash` con `narrador trabajador lanzar`, `claude --bg` o `claude -p`.
+- **Lo que añadas** en `~/.local/share/narrador/decisiones/config.json` (opcional): `herramientas` (regex de nombres, p. ej. `"Agent"`), `bash` (regex de comandos; sustituye la lista por defecto), `editar_plan` (`false` para no pedir razón en cada `Edit` del plan), `razon_min` (15 caracteres), `plan_reciente_min` (60) y `activo`. Si añades herramientas, añádelas también al `matcher` del hook.
+
+Si la llamada no trae la razón, el hook la bloquea y le pide a Claude que la repita con una línea `Por qué: …` (o `Porque: …`):
+- en el plan o en el `new_string` del `Edit`, también como comentario `<!-- Por qué: … -->`;
+- en el texto de `ExitPlanMode` (si llega sin texto, vale la línea `Por qué:` del plan escrito en la última hora);
+- como comentario al final del comando: `narrador trabajador lanzar holo-ui "…"  # Por qué: …`;
+- o en un archivo `<plan>.md.porque` junto al plan, que se borra al usarlo.
+
+Con la razón, la deja pasar y añade una línea a `~/.local/share/narrador/decisiones/decisiones.jsonl`. El registro es append-only, con permisos 600, y cada línea es un objeto JSON:
+
+```json
+{"v": 1, "fecha": "2026-10-24T13:27:03-05:00", "sesion": "abc12345-…", "proyecto": "io-assistant", "cwd": "/home/…/io-assistant",
+ "herramienta": "Write", "tipo": "plan_escribir", "objetivo": "/home/…/.claude/plans/p.md",
+ "accion": "escribir el plan p.md «Plan X»", "razon": "…", "fuente": "marcador"}
+```
+
+`tipo` es `plan_escribir`, `plan_editar`, `plan_aprobar`, `trabajador`, `comando` u `otra`; `fuente` es `marcador`, `archivo` o `plan`; `v` es la versión del formato. Si el hook falla, la llamada pasa sin apuntar nada: nunca bloquea por un error suyo.
+
+**Consultarlo:** `bin/narrador decisiones listar [-n N] [--sesion ID] [--proyecto P] [--desde AAAA-MM-DD] [--tipo T] [--json]` (con `--json`, una línea por decisión, para otra herramienta) y `bin/narrador decisiones ruta`. También vale `jq` sobre el archivo.
+
+**Instalarlo (no está instalado):** va en los settings de usuario de Claude Code, no en el plugin, para que valga en todas las sesiones. Copia el bloque de [hooks/decisiones.settings.json](hooks/decisiones.settings.json) dentro de `hooks.PreToolUse` de `~/.claude/settings.json`, junto a lo que ya haya ahí, y abre una sesión nueva (o revisa `/hooks`). Apunta a `scripts/decisiones.py` de este repo, así que coge los cambios sin tocar la caché del plugin. Para quitarlo, borra ese bloque o pon `"activo": false` en el `config.json`.
 
 ## Narrador en la misma sesión (opcional)
 
@@ -209,9 +256,10 @@ skills/mentor/     /narrador:mentor (mentor en una sesión aparte)
 skills/voz/        /narrador:voz
 output-styles/     narrador.md (estilo opcional para narrar en la misma sesión)
 hooks/hooks.json   MessageDisplay y UserPromptSubmit → scripts/hook.py
+hooks/decisiones.settings.json   fragmento para ~/.claude/settings.json: captura de decisiones → scripts/decisiones.py
 scripts/           comun.py, hook.py, daemon.py, motores.py, visor.py, oido.py, escucha.py, huella.py,
                    asistente.py, riesgo.py, pretool.py, parte_matinal.py, memoria.py, instalar.sh
-tests/             pruebas de riesgo.py y pretool.py (python3 -m unittest discover -s tests)
+tests/             pruebas de riesgo.py, pretool.py y parte_matinal.py (.runtime/venv-tests/bin/python -m pytest -q tests)
 bin/narrador       CLI (en el PATH de Bash mientras el plugin esté activo)
 bin/io             lanzador de Ío (una sola instancia, en ~/Documentos)
 bin/io-ventana     lo que ejecuta Alt + Shift derecho
