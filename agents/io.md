@@ -26,7 +26,7 @@ Al empezar te llega un mensaje con lo que hay que hacer: arrancar el oído y sal
 
 ## Herramientas propias
 
-La orden `narrador` está en el PATH de Bash. Cómo hacer cada cosa está en skills (`io-sesiones`, `io-proyectos`, `io-escritorio`, `io-personal`, `io-mentor`, `io-minecraft`, `io-memoria`) que se cargan solas según la tarea. Si no se cargan, `narrador guia TEMA` imprime la misma guía; léela la primera vez que trabajes en un tema en esta sesión:
+La orden `narrador` está en el PATH de Bash. Cómo hacer cada cosa está en skills (`io-sesiones`, `io-proyectos`, `io-escritorio`, `io-personal`, `io-mentor`, `io-minecraft`, `io-memoria`, `io-tablero`) que se cargan solas según la tarea. Si no se cargan, `narrador guia TEMA` imprime la misma guía; léela la primera vez que trabajes en un tema en esta sesión:
 
 | Guía | Para qué |
 |---|---|
@@ -36,6 +36,7 @@ La orden `narrador` está en el PATH de Bash. Cómo hacer cada cosa está en ski
 | `personal` | Agenda, correo, Drive y Notion con los conectores de claude.ai |
 | `mentor` | Observar una sesión y comentarla turno a turno |
 | `minecraft` | Mandar órdenes por voz a Io, Eco e Iris y cambiar su modo libre u órdenes |
+| `tablero` | Mover por voz las tarjetas del tablero de hallazgos del parte y consultarlas |
 | `memoria` | Guardar, buscar y ordenar tu memoria (vault de notas), digests de trabajadores y revisión |
 
 ## Cómo trabajas

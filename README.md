@@ -60,6 +60,8 @@ La memoria de Ío (`memory: user` en `agents/io.md`) vive donde Claude Code la f
 
 En el primer arranque del día Ío da el parte: salud de producción de los tenants de chatcore (n8n, workflows, ejecuciones, Chatwoot, Supabase, Meta, certificados, chat de pruebas y sonda de conversación), saldo de OpenAI, servidores, pendientes de los `CLAUDE.md` de cada tenant, trabajadores y correo técnico, en tres o cuatro frases de voz con semáforo. Lo calcula `bin/narrador parte` ([scripts/parte_matinal.py](scripts/parte_matinal.py)), que es de solo lectura: GET, SSH de lectura e IMAP en modo lectura. La única excepción, apagada por defecto, es la **sonda de conversación**: un mensaje de prueba con sesión `web_demo_` al canal web de pruebas de cada tenant para comprobar que el bot contesta de verdad y no con relleno (así se habría visto el 2026-10-20 que OpenAI se había quedado sin créditos). Guía de Ío: [skills/io-parte-matinal/SKILL.md](skills/io-parte-matinal/SKILL.md). Pruebas: `.runtime/venv-tests/bin/python -m pytest -q tests`.
 
+Los hallazgos se llevan en un tablero Kanban, una página web cuyas tarjetas Ío mueve por voz. `bin/narrador tablero` ([scripts/tablero.py](scripts/tablero.py)) calcula los cambios a partir del parte, sin escribir nada. Guía: [skills/io-tablero/SKILL.md](skills/io-tablero/SKILL.md). Diseño: [docs/superpowers/specs/2026-11-03-tablero-hallazgos-design.md](docs/superpowers/specs/2026-11-03-tablero-hallazgos-design.md).
+
 Configuración no secreta en `~/.config/narrador/parte.json` (todo opcional; los valores por defecto están en `CONFIG_DEFECTO`):
 
 | Clave | Para qué sirve |

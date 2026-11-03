@@ -12,8 +12,20 @@ El trabajo pesado lo hace un script determinista y de solo lectura: `narrador pa
 1. **Saluda primero, en una línea de voz**, y en el mismo turno lanza en segundo plano (`run_in_background`): `narrador parte --json`. Tarda entre 10 y 40 segundos (hasta 60 con la sonda de conversación activa). Si el usuario te habla mientras tanto, atiéndele; el parte llega después («el parte lo tienes en cuanto termines»).
 2. Mientras llega, consulta la agenda de hoy con el conector de Google Calendar (`list_events`, solo hoy; busca la herramienta con ToolSearch si no está cargada). Si el conector no aparece, lo dices y sigues.
 3. **Correo de tech@vindam.com**: si en el JSON `correo` trae mensajes, ya está (los leyó el script por IMAP) y ya vienen clasificados y ordenados: `categoria` (alerta, cliente, factura, otro), `nivel` (rojo, ámbar, verde), `fuente` (OpenAI, Meta, Supabase, n8n, Chatwoot, Hostinger… o el dominio) y `motivo`. Locuta primero las alertas rojas (facturación o créditos de un proveedor) y las ámbar, con remitente, asunto y qué piden en una frase cada una; clientes y facturas en una frase; lo clasificado como «otro» no lo menciones. Si no (`imap_tech` desactivado), busca con ToolSearch un conector de Gmail y lanza `search_threads` con `to:tech@vindam.com newer_than:1d` (como mucho 10 hilos, vista mínima); triage a mano con el mismo criterio. Si no hay conector o no devuelve nada, di «no veo el buzón técnico desde tu cuenta» y sigue; no insistas. Nunca respondas ni reenvíes nada.
-4. Cuando llegue el JSON, locuta el parte (formato de abajo) y escribe debajo el bloque de texto. Después ejecuta `narrador parte --entregado` para que no se repita en el próximo arranque.
+4. Cuando llegue el JSON, cruza el parte con el tablero (sección siguiente), locuta el parte (formato de abajo) y escribe debajo el bloque de texto. Después ejecuta `narrador parte --entregado` para que no se repita en el próximo arranque.
 5. Si el usuario pide el parte a mano («dame el parte», «cómo está producción»): `narrador parte --json`; si quiere datos frescos o han pasado más de dos horas, `--forzar`. Para un solo tenant, `--tenant NOMBRE`. El informe completo del día está en el archivo que indica `informe_md`; si pregunta por un tenant concreto, lee solo su sección (`grep -n`), no el archivo entero.
+
+## Cruzar con el tablero
+
+La URL está en tu nota `referencias/tablero-hallazgos.md`; las órdenes por voz, en la guía `tablero`.
+
+1. Crea una carpeta nueva y dentro `tarjetas`: `d=$(mktemp -d -p "$SCRATCHPAD"); mkdir "$d/tarjetas"` (una lectura vieja daría versiones viejas).
+2. `ArtifactData` `list` de `tarjetas` con `query: {"limit": 1000}` y `out_dir: "$d"`. El resultado lista cada documento con su versión; esos archivos no la incluyen.
+3. `narrador tablero plan --tarjetas "$d/tarjetas" --versiones '{"id": version, ...}' `, copiando las versiones de ese listado. Si la colección está vacía, `'{}'`.
+4. Si `lotes` trae algo, `ArtifactData` `batch` con cada lote, tal cual. Si falla con `version_mismatch`, el usuario movió algo: vuelve al paso 1.
+5. Locuta con la salida del plan, no con `resumen_voz`: `semaforo`, `voz.activas` (rojo primero; las de marca `reabierta` o `empeorada`, dilo), cuántas siguen dejadas de lado (`voz.dejadas`, sin detallarlas) y `sin_comprobar`. Lo de `fiabilidad: estimado` se dice como estimado, nunca como hecho.
+
+**Si algo falla, nunca ocultes un hallazgo.** Si no puedes leer las tarjetas, si `narrador tablero` sale con 3 o si el plan trae `fiable: false`, locuta con `resumen_voz` del parte, sin filtrar, y di que el tablero no respondió: su semáforo podría ser un verde falso. Si solo falla la escritura, locuta con el plan y avisa. `narrador parte` sale con 0, 1 o 2 según el semáforo; solo la 3 es un fallo.
 
 ## Formato de voz (3-4 líneas 🎙️, cada una de 25 palabras como mucho)
 

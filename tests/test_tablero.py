@@ -531,3 +531,18 @@ def test_parte_por_defecto_es_el_ultimo_completo(tmp_path):
 def test_sin_partes_por_defecto_lanza(tmp_path):
     with pytest.raises(FileNotFoundError):
         ultimo_parte(tmp_path)
+
+
+# --- guías de Ío ---
+
+SKILLS = RAIZ / "skills"
+
+
+@pytest.mark.parametrize("texto", ["[voz-equipo]", "if_version", "--versiones", "deshaz", "producción", "tarjetas"])
+def test_skill_tablero_cubre_limites(texto):
+    assert texto in (SKILLS / "io-tablero" / "SKILL.md").read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("texto", ["narrador tablero plan", "--versiones", "resumen_voz", "fiable", "version_mismatch", "estimado"])
+def test_parte_matinal_usa_tablero(texto):
+    assert texto in (SKILLS / "io-parte-matinal" / "SKILL.md").read_text(encoding="utf-8")
