@@ -1,0 +1,456 @@
+{
+ "compacto": {
+  "fecha": "2026-11-03"
+ },
+ "parcial": false,
+ "tenants": {
+  "cliente-a": "cliente-a",
+  "cliente-b-services": "cliente-b",
+  "cliente-c": "cliente-c",
+  "cliente-d": "cliente-d",
+  "cliente-e": "cliente-e"
+ },
+ "resultados": [
+  {
+   "check": "vps",
+   "ambito": "servidor-1",
+   "estado": "verde",
+   "valor": "valor 0",
+   "detalle": ""
+  },
+  {
+   "check": "vps",
+   "ambito": "servidor-2",
+   "estado": "verde",
+   "valor": "valor 1",
+   "detalle": ""
+  },
+  {
+   "check": "meta_numero",
+   "ambito": "cliente-a",
+   "estado": "rojo",
+   "valor": "valor 2",
+   "detalle": ""
+  },
+  {
+   "check": "chatwoot",
+   "ambito": "cliente-a",
+   "estado": "ambar",
+   "valor": "valor 3",
+   "detalle": ""
+  },
+  {
+   "check": "env_permisos",
+   "ambito": "cliente-a",
+   "estado": "ambar",
+   "valor": "valor 4",
+   "detalle": ""
+  },
+  {
+   "check": "ejecuciones",
+   "ambito": "cliente-a",
+   "estado": "verde",
+   "valor": "valor 5",
+   "detalle": ""
+  },
+  {
+   "check": "meta_token",
+   "ambito": "cliente-a",
+   "estado": "verde",
+   "valor": "valor 6",
+   "detalle": ""
+  },
+  {
+   "check": "n8n",
+   "ambito": "cliente-a",
+   "estado": "verde",
+   "valor": "valor 7",
+   "detalle": ""
+  },
+  {
+   "check": "supabase",
+   "ambito": "cliente-a",
+   "estado": "verde",
+   "valor": "valor 8",
+   "detalle": ""
+  },
+  {
+   "check": "tester",
+   "ambito": "cliente-a",
+   "estado": "verde",
+   "valor": "valor 9",
+   "detalle": ""
+  },
+  {
+   "check": "tls",
+   "ambito": "cliente-a",
+   "estado": "verde",
+   "valor": "valor 10",
+   "detalle": ""
+  },
+  {
+   "check": "tls",
+   "ambito": "cliente-a",
+   "estado": "verde",
+   "valor": "valor 11",
+   "detalle": ""
+  },
+  {
+   "check": "tls",
+   "ambito": "cliente-a",
+   "estado": "verde",
+   "valor": "valor 12",
+   "detalle": ""
+  },
+  {
+   "check": "wf_activo",
+   "ambito": "cliente-a",
+   "estado": "verde",
+   "valor": "valor 13",
+   "detalle": ""
+  },
+  {
+   "check": "env_permisos",
+   "ambito": "cliente-c",
+   "estado": "ambar",
+   "valor": "valor 14",
+   "detalle": ""
+  },
+  {
+   "check": "chatwoot",
+   "ambito": "cliente-c",
+   "estado": "na",
+   "valor": "valor 15",
+   "detalle": ""
+  },
+  {
+   "check": "ejecuciones",
+   "ambito": "cliente-c",
+   "estado": "verde",
+   "valor": "valor 16",
+   "detalle": ""
+  },
+  {
+   "check": "meta_numero",
+   "ambito": "cliente-c",
+   "estado": "verde",
+   "valor": "valor 17",
+   "detalle": ""
+  },
+  {
+   "check": "meta_token",
+   "ambito": "cliente-c",
+   "estado": "verde",
+   "valor": "valor 18",
+   "detalle": ""
+  },
+  {
+   "check": "n8n",
+   "ambito": "cliente-c",
+   "estado": "verde",
+   "valor": "valor 19",
+   "detalle": ""
+  },
+  {
+   "check": "openai_clave",
+   "ambito": "cliente-c",
+   "estado": "verde",
+   "valor": "valor 20",
+   "detalle": ""
+  },
+  {
+   "check": "supabase",
+   "ambito": "cliente-c",
+   "estado": "verde",
+   "valor": "valor 21",
+   "detalle": ""
+  },
+  {
+   "check": "tester",
+   "ambito": "cliente-c",
+   "estado": "verde",
+   "valor": "valor 22",
+   "detalle": ""
+  },
+  {
+   "check": "tls",
+   "ambito": "cliente-c",
+   "estado": "verde",
+   "valor": "valor 23",
+   "detalle": ""
+  },
+  {
+   "check": "tls",
+   "ambito": "cliente-c",
+   "estado": "verde",
+   "valor": "valor 24",
+   "detalle": ""
+  },
+  {
+   "check": "tls",
+   "ambito": "cliente-c",
+   "estado": "verde",
+   "valor": "valor 25",
+   "detalle": ""
+  },
+  {
+   "check": "wf_activo",
+   "ambito": "cliente-c",
+   "estado": "verde",
+   "valor": "valor 26",
+   "detalle": ""
+  },
+  {
+   "check": "openai_saldo",
+   "ambito": "global",
+   "estado": "rojo",
+   "valor": "valor 27",
+   "detalle": ""
+  },
+  {
+   "check": "correo",
+   "ambito": "global",
+   "estado": "na",
+   "valor": "valor 28",
+   "detalle": ""
+  },
+  {
+   "check": "sonda",
+   "ambito": "global",
+   "estado": "na",
+   "valor": "valor 29",
+   "detalle": ""
+  },
+  {
+   "check": "env_permisos",
+   "ambito": "cliente-b-services",
+   "estado": "ambar",
+   "valor": "valor 30",
+   "detalle": ""
+  },
+  {
+   "check": "env_permisos",
+   "ambito": "cliente-b-services",
+   "estado": "ambar",
+   "valor": "valor 31",
+   "detalle": ""
+  },
+  {
+   "check": "openai_clave",
+   "ambito": "cliente-b-services",
+   "estado": "ambar",
+   "valor": "valor 32",
+   "detalle": ""
+  },
+  {
+   "check": "wf_activo",
+   "ambito": "cliente-b-services",
+   "estado": "ambar",
+   "valor": "valor 33",
+   "detalle": ""
+  },
+  {
+   "check": "ejecuciones",
+   "ambito": "cliente-b-services",
+   "estado": "verde",
+   "valor": "valor 34",
+   "detalle": ""
+  },
+  {
+   "check": "n8n",
+   "ambito": "cliente-b-services",
+   "estado": "verde",
+   "valor": "valor 35",
+   "detalle": ""
+  },
+  {
+   "check": "supabase",
+   "ambito": "cliente-b-services",
+   "estado": "verde",
+   "valor": "valor 36",
+   "detalle": ""
+  },
+  {
+   "check": "tester",
+   "ambito": "cliente-b-services",
+   "estado": "verde",
+   "valor": "valor 37",
+   "detalle": ""
+  },
+  {
+   "check": "tls",
+   "ambito": "cliente-b-services",
+   "estado": "verde",
+   "valor": "valor 38",
+   "detalle": ""
+  },
+  {
+   "check": "tls",
+   "ambito": "cliente-b-services",
+   "estado": "verde",
+   "valor": "valor 39",
+   "detalle": ""
+  },
+  {
+   "check": "env_permisos",
+   "ambito": "cliente-d",
+   "estado": "ambar",
+   "valor": "valor 40",
+   "detalle": ""
+  },
+  {
+   "check": "chatwoot",
+   "ambito": "cliente-d",
+   "estado": "verde",
+   "valor": "valor 41",
+   "detalle": ""
+  },
+  {
+   "check": "ejecuciones",
+   "ambito": "cliente-d",
+   "estado": "verde",
+   "valor": "valor 42",
+   "detalle": ""
+  },
+  {
+   "check": "meta_numero",
+   "ambito": "cliente-d",
+   "estado": "verde",
+   "valor": "valor 43",
+   "detalle": ""
+  },
+  {
+   "check": "meta_token",
+   "ambito": "cliente-d",
+   "estado": "verde",
+   "valor": "valor 44",
+   "detalle": ""
+  },
+  {
+   "check": "n8n",
+   "ambito": "cliente-d",
+   "estado": "verde",
+   "valor": "valor 45",
+   "detalle": ""
+  },
+  {
+   "check": "supabase",
+   "ambito": "cliente-d",
+   "estado": "verde",
+   "valor": "valor 46",
+   "detalle": ""
+  },
+  {
+   "check": "tester",
+   "ambito": "cliente-d",
+   "estado": "verde",
+   "valor": "valor 47",
+   "detalle": ""
+  },
+  {
+   "check": "tls",
+   "ambito": "cliente-d",
+   "estado": "verde",
+   "valor": "valor 48",
+   "detalle": ""
+  },
+  {
+   "check": "tls",
+   "ambito": "cliente-d",
+   "estado": "verde",
+   "valor": "valor 49",
+   "detalle": ""
+  },
+  {
+   "check": "tls",
+   "ambito": "cliente-d",
+   "estado": "verde",
+   "valor": "valor 50",
+   "detalle": ""
+  },
+  {
+   "check": "wf_activo",
+   "ambito": "cliente-d",
+   "estado": "verde",
+   "valor": "valor 51",
+   "detalle": ""
+  },
+  {
+   "check": "chatwoot",
+   "ambito": "cliente-e",
+   "estado": "ambar",
+   "valor": "valor 52",
+   "detalle": ""
+  },
+  {
+   "check": "ejecuciones",
+   "ambito": "cliente-e",
+   "estado": "ambar",
+   "valor": "valor 53",
+   "detalle": ""
+  },
+  {
+   "check": "env_permisos",
+   "ambito": "cliente-e",
+   "estado": "ambar",
+   "valor": "valor 54",
+   "detalle": ""
+  },
+  {
+   "check": "meta_numero",
+   "ambito": "cliente-e",
+   "estado": "verde",
+   "valor": "valor 55",
+   "detalle": ""
+  },
+  {
+   "check": "meta_token",
+   "ambito": "cliente-e",
+   "estado": "verde",
+   "valor": "valor 56",
+   "detalle": ""
+  },
+  {
+   "check": "n8n",
+   "ambito": "cliente-e",
+   "estado": "verde",
+   "valor": "valor 57",
+   "detalle": ""
+  },
+  {
+   "check": "openai_clave",
+   "ambito": "cliente-e",
+   "estado": "verde",
+   "valor": "valor 58",
+   "detalle": ""
+  },
+  {
+   "check": "supabase",
+   "ambito": "cliente-e",
+   "estado": "verde",
+   "valor": "valor 59",
+   "detalle": ""
+  },
+  {
+   "check": "tls",
+   "ambito": "cliente-e",
+   "estado": "verde",
+   "valor": "valor 60",
+   "detalle": ""
+  },
+  {
+   "check": "tls",
+   "ambito": "cliente-e",
+   "estado": "verde",
+   "valor": "valor 61",
+   "detalle": ""
+  },
+  {
+   "check": "wf_activo",
+   "ambito": "cliente-e",
+   "estado": "verde",
+   "valor": "valor 62",
+   "detalle": ""
+  }
+ ]
+}

@@ -1,13 +1,15 @@
 """Pruebas de tablero.py (sin red). Ejecuta: .runtime/venv-tests/bin/python -m pytest -q tests/test_tablero.py"""
 
+import json
 import sys
+from collections import Counter
 from pathlib import Path
 
 import pytest
 
 RAIZ = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(RAIZ / "scripts"))
-from tablero import agrupar, decidir, id_tarjeta, ocultar  # noqa: E402
+from tablero import agrupar, decidir, id_tarjeta, leer_tarjetas, main, ocultar, planificar, ultimo_parte  # noqa: E402
 
 HOY = "2026-11-03"
 AYER = "2026-11-02"
@@ -262,3 +264,228 @@ def test_otro_es_comprobado():
 
 def test_titulo_legible():
     assert decidir(grupo(res(check="meta_numero")), None, parcial=False, hoy=HOY)["titulo"] == "número de WhatsApp"
+
+
+# --- plan de cambios ---
+
+FIXTURE = RAIZ / "tests" / "fixtures" / "parte_tablero.json"
+
+
+def parte_real():
+    return json.loads(FIXTURE.read_text(encoding="utf-8"))
+
+
+def parte_mini(*resultados, fecha=HOY, parcial=False):
+    return {"compacto": {"fecha": fecha}, "parcial": parcial, "tenants": {"cliente-b-services": "cliente-b"}, "resultados": list(resultados)}
+
+
+def doc(id_="cliente-a--chatwoot", **campos):
+    return {"id": id_, "version": 7, "cliente": "cliente-a", "titulo": "Chatwoot", "fiabilidad": "comprobado", "primera_vez": AYER, **tarjeta(**campos)}
+
+
+def escrituras(plan):
+    return [e for lote in plan["lotes"] for e in lote]
+
+
+def columnas(plan):
+    return Counter(e["data"]["columna"] for e in escrituras(plan))
+
+
+def test_semilla_real_da_7_y_5():
+    plan = planificar(parte_real(), [], modo="semilla")
+    assert columnas(plan) == {"nuevos": 7, "dejados": 5}
+    assert len(escrituras(plan)) == 12
+
+
+def test_semilla_real_agrupa_los_dos_env_de_un_cliente():
+    plan = planificar(parte_real(), [], modo="semilla")
+    env = next(e for e in escrituras(plan) if e["doc_id"] == "cliente-b-services--env_permisos")
+    assert len(env["data"]["detalle"]) == 2
+
+
+def test_semaforo_real_en_rojo():
+    assert planificar(parte_real(), [], modo="semilla")["semaforo"] == "rojo"
+
+
+def test_semaforo_ignora_dejados():
+    plan = planificar(parte_mini(res("rojo")), [doc(columna="dejados", nivel="rojo")])
+    assert plan["semaforo"] == "verde"
+
+
+def test_semaforo_ambar():
+    assert planificar(parte_mini(res("ambar")), [])["semaforo"] == "ambar"
+
+
+def test_voz_activas_ordenadas_y_cifra_dejadas():
+    tarjetas = [
+        doc("a--uno", columna="nuevos", nivel="ambar"),
+        {**doc("a--dos", columna="en_curso", nivel="rojo"), "primera_vez": "2026-11-01"},
+        {**doc("a--tres", columna="nuevos", nivel="rojo"), "primera_vez": "2026-10-20"},
+        doc("a--cuatro", columna="dejados"),
+        doc("a--cinco", columna="resueltos"),
+    ]
+    voz = planificar(parte_mini(), tarjetas)["voz"]
+    assert [a["id"] for a in voz["activas"]] == ["a--tres", "a--dos", "a--uno"]
+    assert voz["dejadas"] == 1
+    assert voz["activas"][0]["dias"] == 14
+    assert set(voz["activas"][0]) == {"id", "cliente", "titulo", "nivel", "valores", "fiabilidad", "marca", "dias"}
+
+
+def test_voz_refleja_los_cambios_del_plan():
+    voz = planificar(parte_mini(res("verde")), [doc(columna="nuevos")])["voz"]
+    assert voz["activas"] == []
+
+
+def test_voz_incluye_reabierta_con_marca():
+    voz = planificar(parte_mini(res("ambar")), [doc(columna="resueltos")])["voz"]
+    assert voz["activas"][0]["marca"] == "reabierta"
+
+
+def test_sin_comprobar_lista_na_y_error():
+    plan = planificar(parte_real(), [], modo="semilla")
+    texto = " ".join(plan["sin_comprobar"])
+    assert "cliente-c" in texto and "Chatwoot" in texto
+    assert "correo técnico" in texto and "sonda de conversación" in texto
+    assert len(plan["sin_comprobar"]) == 3
+
+
+def test_sin_comprobar_incluye_error():
+    assert len(planificar(parte_mini(res("error")), [])["sin_comprobar"]) == 1
+
+
+def test_cliente_usa_nombre_de_voz():
+    plan = planificar(parte_mini(res(ambito="cliente-b-services"), res(ambito="10.0.0.1", check="vps")), [])
+    clientes = {e["doc_id"]: e["data"]["cliente"] for e in escrituras(plan)}
+    assert clientes == {"cliente-b-services--chatwoot": "cliente-b", "10.0.0.1--vps": "global"}
+
+
+def test_update_lleva_version_y_set_no():
+    plan = planificar(parte_mini(res("rojo"), res(check="tls")), [doc()])
+    por_id = {e["doc_id"]: e for e in escrituras(plan)}
+    assert por_id["cliente-a--chatwoot"]["op"] == "update"
+    assert por_id["cliente-a--chatwoot"]["if_version"] == 7
+    assert por_id["cliente-a--tls"]["op"] == "set"
+    assert "if_version" not in por_id["cliente-a--tls"]
+    assert por_id["cliente-a--tls"]["collection"] == "tarjetas"
+
+
+def test_update_no_manda_campos_internos():
+    data = escrituras(planificar(parte_mini(res("rojo")), [doc()]))[0]["data"]
+    assert "id" not in data and "version" not in data
+
+
+def test_sin_cambios_lotes_vacios():
+    t = doc(columna="nuevos", ultima=HOY)
+    assert planificar(parte_mini(res("ambar")), [t])["lotes"] == []
+
+
+def test_parte_antiguo_no_mueve():
+    plan = planificar(parte_mini(res("verde"), fecha=AYER), [doc(ultima=HOY)])
+    assert plan["lotes"] == []
+    assert any("antiguo" in a for a in plan["avisos"])
+
+
+def test_grupo_ausente_no_cambia():
+    assert planificar(parte_mini(res(check="tls", estado="verde")), [doc(columna="nuevos")])["lotes"] == []
+
+
+def test_ignorar_no_recrea_tarjeta_invalida():
+    assert planificar(parte_mini(res("rojo")), [], ignorar={"cliente-a--chatwoot"})["lotes"] == []
+
+
+def test_parcial_no_crea_desde_planificar():
+    assert planificar(parte_mini(res("rojo"), parcial=True), [])["lotes"] == []
+
+
+def test_mas_de_50_escrituras_en_lotes():
+    resultados = [res(check=f"c{i}") for i in range(120)]
+    plan = planificar(parte_mini(*resultados), [])
+    assert [len(lote) for lote in plan["lotes"]] == [50, 50, 20]
+    assert len({e["doc_id"] for e in escrituras(plan)}) == 120
+
+
+def test_plan_devuelve_fecha():
+    assert planificar(parte_mini(), [])["fecha"] == HOY
+
+
+# --- leer tarjetas ---
+
+def guardar(carpeta, nombre, contenido):
+    (carpeta / f"{nombre}.json").write_text(contenido if isinstance(contenido, str) else json.dumps(contenido), encoding="utf-8")
+
+
+def test_leer_tarjetas_usa_el_nombre_como_id(tmp_path):
+    d = doc()
+    del d["id"]
+    guardar(tmp_path, "cliente-a--chatwoot", d)
+    tarjetas, invalidas, avisos = leer_tarjetas(tmp_path)
+    assert [t["id"] for t in tarjetas] == ["cliente-a--chatwoot"]
+    assert invalidas == set() and avisos == []
+
+
+def test_tarjeta_invalida_se_ignora_con_aviso(tmp_path):
+    guardar(tmp_path, "buena", doc())
+    guardar(tmp_path, "columna-rara", doc(columna="x"))
+    guardar(tmp_path, "rota", "{no es json")
+    guardar(tmp_path, "sin-version", {k: v for k, v in doc().items() if k != "version"})
+    tarjetas, invalidas, avisos = leer_tarjetas(tmp_path)
+    assert [t["id"] for t in tarjetas] == ["buena"]
+    assert invalidas == {"columna-rara", "rota", "sin-version"}
+    assert len(avisos) == 3
+
+
+def test_leer_carpeta_inexistente_lanza(tmp_path):
+    with pytest.raises(FileNotFoundError):
+        leer_tarjetas(tmp_path / "no")
+
+
+# --- orden narrador tablero ---
+
+def test_main_imprime_json_valido(tmp_path, capsys):
+    assert main(["semilla", "--tarjetas", str(tmp_path), "--parte", str(FIXTURE)]) == 0
+    assert len([e for lote in json.loads(capsys.readouterr().out)["lotes"] for e in lote]) == 12
+
+
+def test_main_plan_no_usa_semilla(tmp_path, capsys):
+    assert main(["plan", "--tarjetas", str(tmp_path), "--parte", str(FIXTURE)]) == 0
+    datos = json.loads(capsys.readouterr().out)
+    assert {e["data"]["columna"] for lote in datos["lotes"] for e in lote} == {"nuevos"}
+
+
+def test_main_avisa_de_tarjeta_invalida_y_no_la_recrea(tmp_path, capsys):
+    guardar(tmp_path, "cliente-a--meta_numero", "{rota")
+    assert main(["plan", "--tarjetas", str(tmp_path), "--parte", str(FIXTURE)]) == 0
+    datos = json.loads(capsys.readouterr().out)
+    assert "cliente-a--meta_numero" not in {e["doc_id"] for lote in datos["lotes"] for e in lote}
+    assert datos["avisos"]
+
+
+def test_main_sin_carpeta_sale_3(tmp_path):
+    assert main(["plan", "--tarjetas", str(tmp_path / "no"), "--parte", str(FIXTURE)]) == 3
+
+
+def test_main_parte_ilegible_sale_3(tmp_path):
+    malo = tmp_path / "parte.json"
+    malo.write_text("{", encoding="utf-8")
+    assert main(["plan", "--tarjetas", str(tmp_path), "--parte", str(malo)]) == 3
+
+
+def test_main_parte_sin_campos_sale_3(tmp_path):
+    malo = tmp_path / "parte.json"
+    malo.write_text("{}", encoding="utf-8")
+    assert main(["plan", "--tarjetas", str(tmp_path), "--parte", str(malo)]) == 3
+
+
+def test_main_parte_inexistente_sale_3(tmp_path):
+    assert main(["plan", "--tarjetas", str(tmp_path), "--parte", str(tmp_path / "no.json")]) == 3
+
+
+def test_parte_por_defecto_es_el_ultimo_completo(tmp_path):
+    for nombre in ("2026-11-02.json", "2026-11-03.json", "2026-11-03-parcial-x.json", "pendientes_cache.json"):
+        (tmp_path / nombre).write_text("{}", encoding="utf-8")
+    assert ultimo_parte(tmp_path).name == "2026-11-03.json"
+
+
+def test_sin_partes_por_defecto_lanza(tmp_path):
+    with pytest.raises(FileNotFoundError):
+        ultimo_parte(tmp_path)
