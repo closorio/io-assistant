@@ -21,9 +21,11 @@ La URL está en tu nota `referencias/tablero-hallazgos.md`; las órdenes por voz
 
 1. Crea una carpeta nueva y dentro `tarjetas`: `d=$(mktemp -d); mkdir "$d/tarjetas"` (una lectura vieja daría versiones viejas).
 2. `ArtifactData` `list` de `tarjetas` con `query: {"limit": 1000}` y `out_dir: "$d"`. El resultado lista cada documento con su versión; esos archivos no la incluyen.
-3. `narrador tablero plan --tarjetas "$d/tarjetas" --versiones '{"id": version, ...}' `, copiando las versiones de ese listado. Si la colección está vacía, `'{}'`.
+3. `narrador tablero plan --tarjetas "$d/tarjetas" --versiones '{"id": version, ...}' --fecha FECHA`, copiando las versiones de ese listado (si la colección está vacía, `'{}'`) y con `fecha` del JSON del parte.
 4. Si `lotes` trae algo, `ArtifactData` `batch` con cada lote, tal cual. Si falla con `version_mismatch`, el usuario movió algo: vuelve al paso 1.
 5. Locuta con la salida del plan, no con `resumen_voz`: `semaforo`, `voz.activas` (rojo primero; las de marca `reabierta` o `empeorada`, dilo), cuántas siguen dejadas de lado (`voz.dejadas`, sin detallarlas) y `sin_comprobar`. Lo de `fiabilidad: estimado` se dice como estimado, nunca como hecho.
+
+**Un parte de un solo tenant (`--tenant`) no se cruza con el tablero:** locuta su `resumen_voz`.
 
 **Si algo falla, nunca ocultes un hallazgo.** Si no puedes leer las tarjetas, si `narrador tablero` sale con 3 o si el plan trae `fiable: false`, locuta con `resumen_voz` del parte, sin filtrar, y di que el tablero no respondió: su semáforo podría ser un verde falso. Si solo falla la escritura, locuta con el plan y avisa. `narrador parte` sale con 0, 1 o 2 según el semáforo; solo la 3 es un fallo.
 

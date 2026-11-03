@@ -546,3 +546,47 @@ def test_skill_tablero_cubre_limites(texto):
 @pytest.mark.parametrize("texto", ["narrador tablero plan", "--versiones", "resumen_voz", "fiable", "version_mismatch", "estimado"])
 def test_parte_matinal_usa_tablero(texto):
     assert texto in (SKILLS / "io-parte-matinal" / "SKILL.md").read_text(encoding="utf-8")
+
+
+# --- revisión final: nunca un verde falso ---
+
+def test_parte_parcial_no_es_fiable():
+    plan = planificar(parte_mini(res("rojo"), parcial=True), [])
+    assert plan["fiable"] is False
+    assert any("parcial" in a for a in plan["avisos"])
+
+
+def test_fecha_esperada_distinta_no_es_fiable():
+    plan = planificar(parte_mini(res("verde"), fecha=AYER), [doc(columna="nuevos", ultima=AYER)], fecha_esperada=HOY)
+    assert plan["fiable"] is False
+    assert plan["lotes"] == []
+
+
+def test_fecha_esperada_igual_es_fiable():
+    assert planificar(parte_mini(), [], fecha_esperada=HOY)["fiable"] is True
+
+
+def test_main_fecha_del_parte_distinta(tmp_path, capsys):
+    assert main(["plan", "--tarjetas", str(tmp_path), "--versiones", "{}", "--parte", str(FIXTURE), "--fecha", "2026-11-04"]) == 0
+    assert json.loads(capsys.readouterr().out)["fiable"] is False
+
+
+@pytest.mark.parametrize("cambio", [
+    {"columna": []},
+    {"nivel": None},
+    {"nivel": "ROJO"},
+    {"primera_vez": "ayer"},
+    {"primera_vez": None},
+    {"ultima_vez": None},
+    {"historial": None},
+    {"detalle": "texto"},
+])
+def test_documento_con_esquema_roto_es_invalido(tmp_path, cambio):
+    guardar(tmp_path, "mala", {**sin_internos(doc()), **cambio})
+    tarjetas, invalidas, avisos = leer_tarjetas(tmp_path, {"mala": 1})
+    assert tarjetas == [] and invalidas == {"mala"} and len(avisos) == 1
+
+
+def test_estado_desconocido_no_resuelve():
+    assert grupo(res("raro"))["situacion"] == "sin_comprobar"
+    assert decidir(grupo(res("raro")), tarjeta("nuevos"), parcial=False, hoy=HOY) is None

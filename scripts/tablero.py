@@ -41,7 +41,7 @@ def agrupar(resultados: list[dict]) -> dict[tuple[str, str], dict]:
 def _grupo(ambito: str, check: str, propios: list[dict]) -> dict:
     estados = {r["estado"] for r in propios}
     nivel = "rojo" if "rojo" in estados else "ambar" if "ambar" in estados else None
-    situacion = "anomalia" if nivel else "sin_comprobar" if estados & {"na", "error"} else "verde"
+    situacion = "anomalia" if nivel else "verde" if estados == {"verde"} else "sin_comprobar"
     valores = [ocultar(r.get("valor") or r.get("detalle") or r["estado"]) for r in propios if r["estado"] in ("rojo", "ambar")]
     return {"ambito": ambito, "check": check, "situacion": situacion, "nivel": nivel, "valores": valores}
 
@@ -87,6 +87,23 @@ def decidir(grupo: dict, tarjeta: dict | None, *, parcial: bool, hoy: str, modo:
     return cambios or None
 
 
+def _fecha_valida(valor: object) -> bool:
+    try:
+        date.fromisoformat(valor)
+        return True
+    except (TypeError, ValueError):
+        return False
+
+
+def _tarjeta_valida(datos: dict, version: object) -> bool:
+    return (
+        datos.get("columna") in COLUMNAS and isinstance(version, int)
+        and datos.get("nivel") in ("rojo", "ambar")
+        and _fecha_valida(datos.get("primera_vez")) and _fecha_valida(datos.get("ultima_vez"))
+        and isinstance(datos.get("detalle"), list) and isinstance(datos.get("historial"), list)
+    )
+
+
 def leer_tarjetas(directorio: Path, versiones: dict[str, int]) -> tuple[list[dict], set[str], list[str]]:
     """Tarjetas válidas, ids inválidos (que el plan no debe tocar) y avisos. Sin carpeta lanza FileNotFoundError.
 
@@ -98,8 +115,8 @@ def leer_tarjetas(directorio: Path, versiones: dict[str, int]) -> tuple[list[dic
     for id_ in sorted(archivos.keys() | versiones.keys()):
         try:
             datos = json.loads(archivos[id_].read_text(encoding="utf-8"))
-            valida = datos.get("columna") in COLUMNAS and isinstance(versiones.get(id_), int)
-        except (KeyError, ValueError, AttributeError):
+            valida = _tarjeta_valida(datos, versiones.get(id_))
+        except (KeyError, ValueError, AttributeError, TypeError):
             valida = False
         if valida:
             tarjetas.append({**datos, "id": id_, "version": versiones[id_]})
@@ -122,13 +139,17 @@ def _activa(tarjeta: dict, hoy: str) -> dict:
     }
 
 
-def planificar(parte: dict, tarjetas: list[dict], *, modo: str = "plan", ignorar: set[str] = frozenset()) -> dict:
+def planificar(parte: dict, tarjetas: list[dict], *, modo: str = "plan", ignorar: set[str] = frozenset(), fecha_esperada: str | None = None) -> dict:
     hoy = parte["compacto"]["fecha"]
     resultados = parte["resultados"]
     nombres = parte.get("tenants", {})
     por_id = {t["id"]: t for t in tarjetas}
     avisos, escrituras = [], []
-    if any(t.get("ultima_vez", "") > hoy for t in tarjetas):
+    if parte.get("parcial"):
+        avisos.append("parte parcial: el semáforo del tablero no lo representa, locuta resumen_voz")
+    if fecha_esperada and hoy != fecha_esperada:
+        avisos.append(f"parte de {hoy}, se esperaba el de {fecha_esperada}: no se mueve nada")
+    elif any(t.get("ultima_vez", "") > hoy for t in tarjetas):
         avisos.append(f"parte antiguo ({hoy}): hay tarjetas más recientes, no se mueve nada")
     else:
         for (ambito, check), grupo in agrupar(resultados).items():
@@ -168,13 +189,14 @@ def main(args: list[str]) -> int:
     ap.add_argument("modo", choices=["plan", "semilla"])
     ap.add_argument("--tarjetas", required=True, type=Path, help="carpeta con las tarjetas guardadas por ArtifactData list con out_dir")
     ap.add_argument("--versiones", required=True, help='JSON {id: version} del listado de esa misma lectura; {} si no hay tarjetas')
+    ap.add_argument("--fecha", help="fecha del JSON de narrador parte recién generado; si el parte leído es de otra, el plan no es fiable")
     ap.add_argument("--parte", type=Path, help="JSON del parte (por defecto, el último completo)")
     opciones = ap.parse_args(args)
     try:
         ruta = opciones.parte or ultimo_parte(PARTES)
         parte = json.loads(ruta.read_text(encoding="utf-8"))
         tarjetas, invalidas, avisos = leer_tarjetas(opciones.tarjetas, json.loads(opciones.versiones))
-        plan = planificar(parte, tarjetas, modo=opciones.modo, ignorar=invalidas)
+        plan = planificar(parte, tarjetas, modo=opciones.modo, ignorar=invalidas, fecha_esperada=opciones.fecha)
     except (OSError, ValueError, KeyError, TypeError, AttributeError) as e:
         print(f"tablero: {type(e).__name__}: {e}", file=sys.stderr)
         return 3

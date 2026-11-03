@@ -3,16 +3,15 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600&family=JetBrains+Mono:ital@0;1&display=swap">
 <style>
-/* Arcilla técnica: mesa de guardia en carbón; un panel arcilla dice por dónde empezar y el detalle es una hoja de papel. */
+/* Arcilla técnica en oscuro: todo en carbón, sin paneles claros, para trabajar a oscuras sin deslumbrar. */
 :root {
   --carbon: #1B1A17; --carbon-2: #25231F; --terra: #A8452A; --arcilla: #E8E3DA; --papel: #F4F1EB; --cian: #05F2DB; --cian-ink: #06615A; --naranja: #F27A05;
-  --fondo: var(--carbon); --superficie: var(--carbon-2); --fg: var(--arcilla); --muted: #A39C90; --line: rgba(244, 241, 235, .16); --enfasis: var(--cian); --sobre-enfasis: var(--carbon);
+  --fondo: var(--carbon); --superficie: var(--carbon-2); --fg: #D6D1C7; --muted: #A39C90; --line: rgba(244, 241, 235, .16); --enfasis: var(--cian); --sobre-enfasis: var(--carbon);
   --serif: "Instrument Serif", Georgia, serif;
   --sans: "Inter", system-ui, -apple-system, sans-serif;
   --mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
   color-scheme: dark;
 }
-.claro { --fondo: var(--papel); --superficie: #FBF9F4; --fg: var(--carbon); --muted: #5F5850; --line: rgba(27, 26, 23, .16); --enfasis: var(--cian-ink); --sobre-enfasis: var(--papel); color-scheme: light; color: var(--fg); }
 html { background: var(--carbon); }
 body { background: var(--carbon); color: var(--fg); font: 400 14px/1.5 var(--sans); -webkit-font-smoothing: antialiased; }
 body::after { content: ""; position: fixed; inset: 0; z-index: 5; pointer-events: none; background: url("tablero-assets/grain.webp") repeat; background-size: 256px; opacity: .4; mix-blend-mode: overlay; }
@@ -30,22 +29,20 @@ h1 em { color: var(--enfasis); font-style: italic; }
 @media (prefers-reduced-motion: reduce) { .resumen::after { animation: none; } }
 button { font: inherit; color: inherit; cursor: pointer; }
 :focus-visible { outline: 2px solid var(--enfasis); outline-offset: 2px; }
-#caducado { margin: 0; padding: 10px 14px; background: var(--carbon-2); border: 1px solid var(--naranja); border-radius: 12px; }
+#caducado, #conexion, #invalidas { margin: 0; padding: 10px 14px; background: var(--carbon-2); border: 1px solid var(--naranja); border-radius: 12px; }
 
-.foco { position: relative; isolation: isolate; display: grid; gap: 14px; background: var(--arcilla); border-radius: 12px; padding: 20px; box-shadow: 0 30px 50px -26px rgba(0, 0, 0, .55); }
-.foco::before { content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none; border-radius: inherit; background: url("tablero-assets/fibers.webp") repeat; background-size: 512px; opacity: .6; }
-.foco.claro { --superficie: #F4F1EB; }
+.foco { display: grid; gap: 14px; background: var(--carbon-2); border: 1px solid var(--line); border-radius: 12px; padding: 20px; }
 .foco ol { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 @media (max-width: 760px) { .foco ol { grid-template-columns: minmax(0, 1fr); } }
-.foco-item { width: 100%; height: 100%; text-align: left; background: var(--superficie); border: 1px solid var(--line); border-radius: 12px; padding: 14px; display: grid; gap: 6px; align-content: start; }
+.foco-item { width: 100%; height: 100%; text-align: left; background: var(--carbon); border: 1px solid var(--line); border-radius: 12px; padding: 14px; display: grid; gap: 6px; align-content: start; }
 .foco-item:hover, .tarjeta:hover { border-color: var(--enfasis); }
-.foco-numero { font: 400 22px/1 var(--mono); color: var(--terra); }
+.foco-numero { font: 400 22px/1 var(--mono); color: var(--muted); }
 .foco-paso { color: var(--muted); font-size: 13px; }
 
 .filtros { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .filtro { background: transparent; border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px; font-size: 13px; }
 .filtro:hover { border-color: var(--enfasis); }
-.filtro[aria-pressed="true"] { background: var(--enfasis); border-color: var(--enfasis); color: var(--sobre-enfasis); font-weight: 500; }
+.filtro[aria-pressed="true"] { border-color: var(--enfasis); color: var(--enfasis); }
 .filtro span { font-family: var(--mono); font-size: 12px; margin-left: 6px; }
 
 .tablero { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; align-items: start; }
@@ -62,28 +59,27 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .titular { margin: 0; font: 500 14px/1.35 var(--sans); overflow-wrap: anywhere; }
 .chips { display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; }
 .chip { font-size: 12px; padding: 1px 9px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
-.chip.rojo { background: var(--terra); color: var(--papel); border-color: var(--terra); font-weight: 500; }
+.chip.rojo { background: var(--terra); color: #F2E3DC; border-color: var(--terra); font-weight: 500; }
 .chip.ambar { color: var(--fg); border-color: var(--naranja); font-weight: 500; }
 .dias { font: 400 12px var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; margin-left: auto; }
 
-dialog { margin: 0 0 0 auto; height: 100%; max-height: none; width: min(480px, 100%); max-width: 100%; border: 0; background: var(--papel); padding: 0; box-shadow: 0 30px 50px -26px rgba(0, 0, 0, .55); }
-dialog::backdrop { background: rgba(27, 26, 23, .68); }
+dialog { margin: 0 0 0 auto; height: 100%; max-height: none; width: min(480px, 100%); max-width: 100%; border: 0; border-left: 1px solid var(--line); background: var(--carbon-2); padding: 0; box-shadow: 0 30px 50px -26px rgba(0, 0, 0, .55); }
+dialog::backdrop { background: rgba(10, 10, 9, .6); }
 .panel { position: relative; isolation: isolate; min-height: 100%; box-sizing: border-box; display: grid; gap: 20px; align-content: start; padding-block: max(20px, env(safe-area-inset-top, 0px)) max(20px, env(safe-area-inset-bottom, 0px)); padding-left: 20px; padding-right: max(20px, env(safe-area-inset-right, 0px)); }
-.panel::before { content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none; background: url("tablero-assets/fibers.webp") repeat; background-size: 512px; opacity: .6; }
 .panel-cabeza { display: flex; justify-content: space-between; gap: 12px; align-items: start; }
 .panel h2 { margin: 4px 0 0; font: 400 32px/1.08 var(--serif); letter-spacing: -.01em; overflow-wrap: anywhere; text-wrap: balance; }
 .panel h3 { margin: 0 0 6px; font: 600 11px/1.2 var(--sans); letter-spacing: .2em; text-transform: uppercase; color: var(--muted); }
-.panel p { margin: 0; color: #3A3631; }
+.panel p { margin: 0; }
 .panel ul { margin: 0; padding-left: 16px; display: grid; gap: 3px; overflow-wrap: anywhere; }
-.historia ul { font: 400 12px/1.5 var(--mono); list-style: none; padding-left: 0; color: #3A3631; }
+.historia ul { font: 400 12px/1.5 var(--mono); list-style: none; padding-left: 0; color: var(--muted); }
 .cerrar, .boton { background: transparent; border: 1px solid var(--line); border-radius: 999px; padding: 5px 14px; }
 .cerrar:hover, .boton:hover { border-color: var(--enfasis); }
 .acciones { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
-.boton[aria-current="true"] { background: var(--carbon); border-color: var(--carbon); color: var(--papel); cursor: default; }
+.boton[aria-current="true"] { background: var(--carbon); border-color: var(--enfasis); color: var(--enfasis); cursor: default; }
 .datos { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; font: 400 13px var(--mono); }
 .datos div span { display: block; color: var(--muted); font: 400 12px var(--sans); }
 
-#estado { position: fixed; z-index: 6; left: max(16px, env(safe-area-inset-left, 0px)); right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(14px + env(safe-area-inset-bottom, 0px)); margin: 0 auto; max-width: 520px; padding: 10px 14px; background: var(--papel); color: var(--carbon); border-radius: 12px; box-shadow: 0 30px 50px -26px rgba(0, 0, 0, .55); display: flex; gap: 12px; justify-content: space-between; align-items: center; }
+#estado { position: fixed; z-index: 6; left: max(16px, env(safe-area-inset-left, 0px)); right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(14px + env(safe-area-inset-bottom, 0px)); margin: 0 auto; max-width: 520px; padding: 10px 14px; background: var(--carbon-2); border: 1px solid var(--line); color: var(--fg); border-radius: 12px; box-shadow: 0 30px 50px -26px rgba(0, 0, 0, .55); display: flex; gap: 12px; justify-content: space-between; align-items: center; }
 #estado[hidden] { display: none; }
 #estado button { background: transparent; border: 1px solid currentColor; border-radius: 999px; padding: 2px 12px; color: inherit; flex: none; }
 </style>
@@ -102,8 +98,10 @@ dialog::backdrop { background: rgba(27, 26, 23, .68); }
     <h1>Tablero de <em>hallazgos</em></h1>
     <p class="resumen" id="resumen">Cargando las tarjetas del parte…</p>
   </header>
+  <p id="conexion" role="status" hidden></p>
+  <p id="invalidas" role="status" hidden></p>
   <p id="caducado" hidden></p>
-  <section class="foco claro" id="foco" aria-labelledby="foco-titulo" hidden>
+  <section class="foco" id="foco" aria-labelledby="foco-titulo" hidden>
     <h2 class="kicker" id="foco-titulo">Empieza por aquí</h2>
     <ol id="foco-lista"></ol>
   </section>
@@ -111,7 +109,7 @@ dialog::backdrop { background: rgba(27, 26, 23, .68); }
   <main class="tablero" id="tablero"></main>
 </div>
 
-<dialog class="claro" id="detalle" aria-labelledby="detalle-titulo"><div class="panel" id="panel"></div></dialog>
+<dialog id="detalle" aria-labelledby="detalle-titulo"><div class="panel" id="panel"></div></dialog>
 <div id="estado" role="status" aria-live="polite" hidden></div>
 
 <script>
@@ -156,6 +154,13 @@ function nodo(etiqueta, clase, texto) {
   if (clase) el.className = clase;
   if (texto !== undefined) el.textContent = texto;
   return el;
+}
+
+function conFoco(el, clave) { el.dataset.foco = clave; return el; }
+function avisoEn(id, texto) { $(id).textContent = texto || ""; $(id).hidden = !texto; }
+function normalizar(d) {
+  const t = { ...d.data(), id: d.id };
+  return { ...t, detalle: Array.isArray(t.detalle) ? t.detalle.map(String) : [], historial: Array.isArray(t.historial) ? t.historial.filter((h) => h && typeof h === "object") : [] };
 }
 
 function mayuscula(texto) { return texto ? texto[0].toUpperCase() + texto.slice(1) : ""; }
@@ -240,7 +245,7 @@ function pintarDetalle() {
   const titulo = nodo("h2", "", nombreTitulo(t));
   titulo.id = "detalle-titulo";
   titulos.append(nodo("div", "etiqueta", cliente(t)), titulo);
-  const cerrar = nodo("button", "cerrar", "Cerrar");
+  const cerrar = conFoco(nodo("button", "cerrar", "Cerrar"), "cerrar");
   cerrar.type = "button";
   cerrar.addEventListener("click", () => $("detalle").close());
   cabeza.append(titulos, cerrar);
@@ -266,7 +271,7 @@ function pintarDetalle() {
     acciones.append(nodo("h3", "", "Mover a"));
     const botones = nodo("div", "acciones");
     COLUMNAS.forEach(([valor, texto]) => {
-      const boton = nodo("button", "boton", texto);
+      const boton = conFoco(nodo("button", "boton", texto), `mover:${valor}`);
       boton.type = "button";
       boton.setAttribute("aria-current", String(t.columna === valor));
       boton.addEventListener("click", () => mover(t.id, valor));
@@ -284,7 +289,7 @@ function pintarDetalle() {
   });
   piezas.push(datos);
 
-  const copiar = nodo("button", "cerrar", "Copiar resumen");
+  const copiar = conFoco(nodo("button", "cerrar", "Copiar resumen"), "copiar");
   copiar.type = "button";
   copiar.addEventListener("click", async () => {
     const texto = `${cliente(t)}: ${nombreTitulo(t)}. ${(t.detalle || []).join("; ")}. Detectado el ${t.primera_vez}.${guia ? ` ${guia[1]}` : ""}`;
@@ -313,6 +318,7 @@ function pintarTarjeta(t) {
   el.setAttribute("role", "button");
   el.setAttribute("aria-haspopup", "dialog");
   el.dataset.id = t.id;
+  conFoco(el, `tarjeta:${t.id}`);
   el.draggable = puedeMover;
   el.addEventListener("dragstart", (e) => { arrastrando = true; e.dataTransfer.setData("text/plain", t.id); });
   el.addEventListener("dragend", () => { arrastrando = false; if (pendiente) pintar(); });
@@ -349,7 +355,7 @@ function pintarFiltros(activas) {
   const caja = $("filtros");
   caja.hidden = !clientes.length;
   const boton = (valor, texto, cuenta) => {
-    const b = nodo("button", "filtro", texto);
+    const b = conFoco(nodo("button", "filtro", texto), `filtro:${valor}`);
     b.type = "button";
     b.setAttribute("aria-pressed", String(filtro === valor));
     b.append(nodo("span", "", String(cuenta)));
@@ -364,7 +370,7 @@ function pintarFoco(activas) {
   $("foco").hidden = !orden.length;
   $("foco-lista").replaceChildren(...orden.map((t, i) => {
     const li = nodo("li");
-    const b = nodo("button", "foco-item");
+    const b = conFoco(nodo("button", "foco-item"), `foco:${t.id}`);
     b.type = "button";
     b.setAttribute("aria-haspopup", "dialog");
     b.addEventListener("click", () => abrir(t.id, b));
@@ -380,7 +386,9 @@ function pintarFoco(activas) {
 function pintar() {
   if (arrastrando) { pendiente = true; return; }
   pendiente = false;
-  const enfocada = document.activeElement?.dataset?.id;
+  const enfocada = document.activeElement?.dataset?.foco;
+  const raras = tarjetas.filter((t) => !NOMBRE[t.columna]);
+  avisoEn("invalidas", raras.length ? `${raras.length === 1 ? "Una tarjeta tiene" : `${raras.length} tarjetas tienen`} una columna no válida y no aparece en el tablero: ${raras.map((t) => t.id).join(", ")}.` : "");
   const activas = tarjetas.filter((t) => t.columna === "nuevos" || t.columna === "en_curso");
   pintarFiltros(activas);
   const visibles = tarjetas.filter((t) => !filtro || cliente(t) === filtro);
@@ -390,15 +398,16 @@ function pintar() {
     const ultima = tarjetas.map((t) => t.ultima_vez).filter(Boolean).sort().pop();
     const curso = activas.filter((t) => t.columna === "en_curso").length;
     $("resumen").textContent = tarjetas.length
-      ? `${activas.length} activas, ${rojas} en rojo, ${curso} en curso. Último parte: ${ultima || "sin fecha"}.`
+      ? `${activas.length} activas, ${rojas} en rojo, ${curso} en curso. Último hallazgo actualizado: ${ultima || "sin fecha"}.`
       : "Aún no hay tarjetas. Aparecerán cuando Ío dé el próximo parte.";
     const antiguedad = ultima ? diasDesde(ultima) : null;
     $("caducado").hidden = !antiguedad;
-    if (antiguedad) $("caducado").textContent = `El último parte es de hace ${antiguedad === 1 ? "1 día" : `${antiguedad} días`}: puede haber hallazgos nuevos que aún no aparecen aquí.`;
+    if (antiguedad) $("caducado").textContent = `Ningún hallazgo se actualiza desde hace ${antiguedad === 1 ? "1 día" : `${antiguedad} días`}. Si no recibiste el parte, puede haber hallazgos que aún no aparecen aquí.`;
   }
+  $("tablero").hidden = !cargada && !tarjetas.length;
   $("tablero").replaceChildren(...COLUMNAS.map(([valor, titulo]) => pintarColumna(valor, titulo, visibles.filter((t) => t.columna === valor))));
-  if (enfocada) document.querySelector(`[data-id="${CSS.escape(enfocada)}"]`)?.focus();
   if ($("detalle").open) pintarDetalle();
+  if (enfocada) document.querySelector(`[data-foco="${CSS.escape(enfocada)}"]`)?.focus();
 }
 
 $("detalle").addEventListener("click", (e) => { if (e.target === $("detalle")) $("detalle").close(); });
@@ -412,7 +421,7 @@ pintar();
 
 (async () => {
   const [db, user] = await Promise.all([claude.use("db"), claude.use("user")]);
-  puedeMover = user ? user.isOwner() : true;
+  puedeMover = user ? await user.isOwner() : false;
   if (!db) {
     puedeMover = false;
     $("resumen").textContent = "Esta vista no puede leer las tarjetas. Abre la página con tu cuenta de Claude.";
@@ -421,22 +430,25 @@ pintar();
   }
   baseDatos = db;
   const espera = setTimeout(() => {
-    $("caducado").hidden = false;
-    $("caducado").textContent = "Las tarjetas no llegan todavía. Esto no significa que no haya hallazgos.";
+    avisoEn("conexion", tarjetas.length ? "Las tarjetas pueden no estar al día: no llega respuesta." : "Las tarjetas no llegan todavía. Esto no significa que no haya hallazgos.");
   }, 10000);
   db.collection("tarjetas").onSnapshot((snap) => {
-    tarjetas = snap.docs.map((d) => ({ ...d.data(), id: d.id }));
+    tarjetas = snap.docs.map(normalizar);
     if (!snap.metadata.fromCache) {
       cargada = true;
       clearTimeout(espera);
+      avisoEn("conexion", "");
+    } else if (cargada) {
+      avisoEn("conexion", "Las tarjetas pueden no estar al día: no llega respuesta.");
     }
     pintar();
   }, () => {
     clearTimeout(espera);
     puedeMover = false;
-    $("caducado").hidden = false;
-    $("caducado").textContent = "Se perdió la conexión con las tarjetas. Recarga la página para verlas al día.";
+    if (!cargada) $("resumen").textContent = "No se pudieron leer las tarjetas.";
+    avisoEn("conexion", "Se perdió la conexión con las tarjetas. Recarga la página para verlas al día.");
     pintar();
   });
+  setInterval(pintar, 30 * 60 * 1000);
 })();
 </script>
