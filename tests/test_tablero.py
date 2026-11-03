@@ -414,70 +414,112 @@ def guardar(carpeta, nombre, contenido):
     (carpeta / f"{nombre}.json").write_text(contenido if isinstance(contenido, str) else json.dumps(contenido), encoding="utf-8")
 
 
-def test_leer_tarjetas_usa_el_nombre_como_id(tmp_path):
-    d = doc()
-    del d["id"]
-    guardar(tmp_path, "cliente-a--chatwoot", d)
-    tarjetas, invalidas, avisos = leer_tarjetas(tmp_path)
-    assert [t["id"] for t in tarjetas] == ["cliente-a--chatwoot"]
+def sin_internos(d):
+    return {k: v for k, v in d.items() if k not in ("id", "version")}
+
+
+def test_leer_tarjetas_toma_id_del_nombre_y_version_del_listado(tmp_path):
+    guardar(tmp_path, "cliente-a--chatwoot", sin_internos(doc()))
+    tarjetas, invalidas, avisos = leer_tarjetas(tmp_path, {"cliente-a--chatwoot": 9})
+    assert [(t["id"], t["version"]) for t in tarjetas] == [("cliente-a--chatwoot", 9)]
     assert invalidas == set() and avisos == []
 
 
 def test_tarjeta_invalida_se_ignora_con_aviso(tmp_path):
-    guardar(tmp_path, "buena", doc())
-    guardar(tmp_path, "columna-rara", doc(columna="x"))
+    versiones = {"buena": 1, "columna-rara": 1, "rota": 1}
+    guardar(tmp_path, "buena", sin_internos(doc()))
+    guardar(tmp_path, "columna-rara", sin_internos(doc(columna="x")))
     guardar(tmp_path, "rota", "{no es json")
-    guardar(tmp_path, "sin-version", {k: v for k, v in doc().items() if k != "version"})
-    tarjetas, invalidas, avisos = leer_tarjetas(tmp_path)
+    guardar(tmp_path, "sin-version", sin_internos(doc()))
+    tarjetas, invalidas, avisos = leer_tarjetas(tmp_path, versiones)
     assert [t["id"] for t in tarjetas] == ["buena"]
     assert invalidas == {"columna-rara", "rota", "sin-version"}
     assert len(avisos) == 3
 
 
+def test_version_listada_sin_archivo_es_invalida(tmp_path):
+    tarjetas, invalidas, avisos = leer_tarjetas(tmp_path, {"perdida": 3})
+    assert tarjetas == [] and invalidas == {"perdida"} and len(avisos) == 1
+
+
 def test_leer_carpeta_inexistente_lanza(tmp_path):
     with pytest.raises(FileNotFoundError):
-        leer_tarjetas(tmp_path / "no")
+        leer_tarjetas(tmp_path / "no", {})
+
+
+# --- fiabilidad del plan: nunca un verde falso ---
+
+def test_plan_fiable_sin_incidencias():
+    assert planificar(parte_mini(res("ambar")), [])["fiable"] is True
+
+
+def test_tarjeta_invalida_hace_el_plan_no_fiable():
+    plan = planificar(parte_mini(), [], ignorar={"cliente-a--chatwoot"})
+    assert plan["fiable"] is False
+
+
+def test_parte_antiguo_hace_el_plan_no_fiable():
+    assert planificar(parte_mini(fecha=AYER), [doc(ultima=HOY)])["fiable"] is False
+
+
+def test_main_sin_versiones_no_da_verde_fiable(tmp_path, capsys):
+    guardar(tmp_path, "cliente-a--meta_numero", sin_internos(doc(columna="nuevos", nivel="rojo")))
+    assert main(["plan", "--tarjetas", str(tmp_path), "--versiones", "{}", "--parte", str(FIXTURE)]) == 0
+    assert json.loads(capsys.readouterr().out)["fiable"] is False
 
 
 # --- orden narrador tablero ---
 
 def test_main_imprime_json_valido(tmp_path, capsys):
-    assert main(["semilla", "--tarjetas", str(tmp_path), "--parte", str(FIXTURE)]) == 0
+    assert main(["semilla", "--tarjetas", str(tmp_path), "--versiones", "{}", "--parte", str(FIXTURE)]) == 0
     assert len([e for lote in json.loads(capsys.readouterr().out)["lotes"] for e in lote]) == 12
 
 
 def test_main_plan_no_usa_semilla(tmp_path, capsys):
-    assert main(["plan", "--tarjetas", str(tmp_path), "--parte", str(FIXTURE)]) == 0
+    assert main(["plan", "--tarjetas", str(tmp_path), "--versiones", "{}", "--parte", str(FIXTURE)]) == 0
     datos = json.loads(capsys.readouterr().out)
     assert {e["data"]["columna"] for lote in datos["lotes"] for e in lote} == {"nuevos"}
 
 
 def test_main_avisa_de_tarjeta_invalida_y_no_la_recrea(tmp_path, capsys):
     guardar(tmp_path, "cliente-a--meta_numero", "{rota")
-    assert main(["plan", "--tarjetas", str(tmp_path), "--parte", str(FIXTURE)]) == 0
+    assert main(["plan", "--tarjetas", str(tmp_path), "--versiones", "{}", "--parte", str(FIXTURE)]) == 0
     datos = json.loads(capsys.readouterr().out)
     assert "cliente-a--meta_numero" not in {e["doc_id"] for lote in datos["lotes"] for e in lote}
     assert datos["avisos"]
 
 
 def test_main_sin_carpeta_sale_3(tmp_path):
-    assert main(["plan", "--tarjetas", str(tmp_path / "no"), "--parte", str(FIXTURE)]) == 3
+    assert main(["plan", "--tarjetas", str(tmp_path / "no"), "--versiones", "{}", "--parte", str(FIXTURE)]) == 3
+
+
+def test_main_versiones_ilegibles_sale_3(tmp_path):
+    assert main(["plan", "--tarjetas", str(tmp_path), "--versiones", "{", "--parte", str(FIXTURE)]) == 3
+
+
+def test_main_usa_las_versiones_del_listado(tmp_path, capsys):
+    guardar(tmp_path, "cliente-a--meta_numero", sin_internos(doc(columna="nuevos", nivel="ambar")))
+    versiones = json.dumps({"cliente-a--meta_numero": 4})
+    assert main(["plan", "--tarjetas", str(tmp_path), "--versiones", versiones, "--parte", str(FIXTURE)]) == 0
+    datos = json.loads(capsys.readouterr().out)
+    escritura = next(e for lote in datos["lotes"] for e in lote if e["doc_id"] == "cliente-a--meta_numero")
+    assert escritura["if_version"] == 4
 
 
 def test_main_parte_ilegible_sale_3(tmp_path):
     malo = tmp_path / "parte.json"
     malo.write_text("{", encoding="utf-8")
-    assert main(["plan", "--tarjetas", str(tmp_path), "--parte", str(malo)]) == 3
+    assert main(["plan", "--tarjetas", str(tmp_path), "--parte", str(malo), "--versiones", "{}"]) == 3
 
 
 def test_main_parte_sin_campos_sale_3(tmp_path):
     malo = tmp_path / "parte.json"
     malo.write_text("{}", encoding="utf-8")
-    assert main(["plan", "--tarjetas", str(tmp_path), "--parte", str(malo)]) == 3
+    assert main(["plan", "--tarjetas", str(tmp_path), "--parte", str(malo), "--versiones", "{}"]) == 3
 
 
 def test_main_parte_inexistente_sale_3(tmp_path):
-    assert main(["plan", "--tarjetas", str(tmp_path), "--parte", str(tmp_path / "no.json")]) == 3
+    assert main(["plan", "--tarjetas", str(tmp_path), "--parte", str(tmp_path / "no.json"), "--versiones", "{}"]) == 3
 
 
 def test_parte_por_defecto_es_el_ultimo_completo(tmp_path):

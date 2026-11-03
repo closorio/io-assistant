@@ -42,7 +42,7 @@ Página (arrastrar, menú) <──── db de la página <──── Ío (Art
 
 ### Comandos
 
-- `narrador tablero plan --tarjetas DIRECTORIO [--parte ARCHIVO]`: lee las tarjetas guardadas con `ArtifactData list` y `out_dir`, e imprime JSON con `lotes` (escrituras de hasta 50 para `batch`), `semaforo` (sin contar lo dejado de lado), `voz` (activas, reabiertas, empeoradas, dejadas de lado) y `sin_comprobar`. Por defecto usa el parte de hoy.
+- `narrador tablero plan --tarjetas DIRECTORIO --versiones JSON [--parte ARCHIVO]`: lee las tarjetas guardadas con `ArtifactData list` y `out_dir` (esos archivos no traen la versión, que Ío copia del listado de la misma lectura), e imprime JSON con `fiable`, `lotes` (escrituras de hasta 50 para `batch`), `semaforo` (sin contar lo dejado de lado), `voz` (activas, reabiertas, empeoradas, dejadas de lado) y `sin_comprobar`. Por defecto usa el parte de hoy.
 - `narrador tablero semilla`: igual que `plan`, pero las tarjetas nuevas de `env_permisos` entran en Dejados de lado. Solo para la carga inicial. Tras ella, la nota de memoria `2026-11-03-env-permisos-644-archivado` pasa a `_archivo/`.
 
 ## Modelo de datos
@@ -126,6 +126,7 @@ El semáforo del parte se calcula sin contar lo dejado de lado: un aviso apartad
 | Fallo | Comportamiento |
 |---|---|
 | No se pueden leer las tarjetas | Parte completo con `resumen_voz` sin filtrar, y aviso de que el tablero no respondió |
+| `fiable: false` (tarjeta inválida o parte antiguo) | Igual que el caso anterior: nunca se locuta el semáforo del tablero, porque podría ser un verde falso |
 | No se puede escribir el lote | Se locuta igual y se avisa; el siguiente parte vuelve a calcular |
 | No se puede mover por voz | Se dice; la tarjeta se queda donde estaba |
 | Parte con salida 3, o JSON ausente o ilegible | `tablero plan` falla sin operaciones; nada se mueve |

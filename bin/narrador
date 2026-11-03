@@ -20,7 +20,7 @@
   narrador recordar MINUTOS TEXTO
   narrador guia [TEMA]       (guías de Ío: sesiones, proyectos, escritorio, personal, mentor)
   narrador parte [--json|--md|--forzar|--solo A,B|--tenant T|--entregado|--simular|--estado]   (parte matinal: salud de producción y pendientes, solo lectura)
-  narrador tablero plan|semilla --tarjetas CARPETA [--parte ARCHIVO]   (tablero de hallazgos: calcula los cambios a partir del parte, no escribe nada)
+  narrador tablero plan|semilla --tarjetas CARPETA --versiones JSON [--parte ARCHIVO]   (tablero de hallazgos: calcula los cambios a partir del parte, no escribe nada)
   narrador memoria revisar [--json] | indices | buscar PALABRAS | informes | guardar [MENSAJE] [--auto]   (memoria de Ío: vault de notas)
   narrador decisiones listar [-n N] [--sesion ID] [--proyecto P] [--desde AAAA-MM-DD] [--tipo T] [--json] | ruta
                              (registro de decisiones: lo que Claude iba a hacer y por qué)

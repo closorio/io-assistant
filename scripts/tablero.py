@@ -87,23 +87,25 @@ def decidir(grupo: dict, tarjeta: dict | None, *, parcial: bool, hoy: str, modo:
     return cambios or None
 
 
-def leer_tarjetas(directorio: Path) -> tuple[list[dict], set[str], list[str]]:
-    """Tarjetas válidas, ids inválidos (que el plan no debe tocar) y avisos. Sin carpeta lanza FileNotFoundError."""
-    tarjetas, invalidas, avisos = [], set(), []
-    for archivo in sorted(Path(directorio).iterdir()):
-        if archivo.suffix != ".json":
-            continue
+def leer_tarjetas(directorio: Path, versiones: dict[str, int]) -> tuple[list[dict], set[str], list[str]]:
+    """Tarjetas válidas, ids inválidos (que el plan no debe tocar) y avisos. Sin carpeta lanza FileNotFoundError.
+
+    Los archivos de ArtifactData con out_dir solo traen el cuerpo: el id es el nombre del archivo y la
+    versión viene del listado que devuelve esa misma lectura.
+    """
+    tarjetas, invalidas = [], set()
+    archivos = {a.stem: a for a in Path(directorio).iterdir() if a.suffix == ".json"}
+    for id_ in sorted(archivos.keys() | versiones.keys()):
         try:
-            datos = json.loads(archivo.read_text(encoding="utf-8"))
-            valida = datos.get("columna") in COLUMNAS and isinstance(datos.get("version"), int)
-        except (ValueError, AttributeError):
+            datos = json.loads(archivos[id_].read_text(encoding="utf-8"))
+            valida = datos.get("columna") in COLUMNAS and isinstance(versiones.get(id_), int)
+        except (KeyError, ValueError, AttributeError):
             valida = False
         if valida:
-            tarjetas.append({**datos, "id": archivo.stem})
+            tarjetas.append({**datos, "id": id_, "version": versiones[id_]})
         else:
-            invalidas.add(archivo.stem)
-            avisos.append(f"tarjeta {archivo.stem} ignorada: documento no válido")
-    return tarjetas, invalidas, avisos
+            invalidas.add(id_)
+    return tarjetas, invalidas, [f"tarjeta {id_} ignorada: documento no válido" for id_ in sorted(invalidas)]
 
 
 def _escritura(id_: str, cambios: dict, tarjeta: dict | None) -> dict:
@@ -143,6 +145,7 @@ def planificar(parte: dict, tarjetas: list[dict], *, modo: str = "plan", ignorar
     orden = sorted(activas, key=lambda t: (t.get("nivel") != "rojo", t.get("primera_vez", hoy)))
     return {
         "fecha": hoy,
+        "fiable": not avisos and not ignorar,
         "lotes": [escrituras[i:i + MAX_LOTE] for i in range(0, len(escrituras), MAX_LOTE)],
         "semaforo": "rojo" if "rojo" in niveles else "ambar" if "ambar" in niveles else "verde",
         "voz": {"activas": [_activa(t, hoy) for t in orden], "dejadas": sum(t.get("columna") == "dejados" for t in por_id.values())},
@@ -164,12 +167,13 @@ def main(args: list[str]) -> int:
     ap = argparse.ArgumentParser(prog="narrador tablero", description="Calcula los cambios del tablero de hallazgos a partir del parte. No escribe nada.")
     ap.add_argument("modo", choices=["plan", "semilla"])
     ap.add_argument("--tarjetas", required=True, type=Path, help="carpeta con las tarjetas guardadas por ArtifactData list con out_dir")
+    ap.add_argument("--versiones", required=True, help='JSON {id: version} del listado de esa misma lectura; {} si no hay tarjetas')
     ap.add_argument("--parte", type=Path, help="JSON del parte (por defecto, el último completo)")
     opciones = ap.parse_args(args)
     try:
         ruta = opciones.parte or ultimo_parte(PARTES)
         parte = json.loads(ruta.read_text(encoding="utf-8"))
-        tarjetas, invalidas, avisos = leer_tarjetas(opciones.tarjetas)
+        tarjetas, invalidas, avisos = leer_tarjetas(opciones.tarjetas, json.loads(opciones.versiones))
         plan = planificar(parte, tarjetas, modo=opciones.modo, ignorar=invalidas)
     except (OSError, ValueError, KeyError, TypeError, AttributeError) as e:
         print(f"tablero: {type(e).__name__}: {e}", file=sys.stderr)
