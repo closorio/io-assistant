@@ -19,7 +19,7 @@ El trabajo pesado lo hace un script determinista y de solo lectura: `narrador pa
 
 La URL está en tu nota `referencias/tablero-hallazgos.md`; las órdenes por voz, en la guía `tablero`.
 
-1. Crea una carpeta nueva y dentro `tarjetas`: `d=$(mktemp -d -p "$SCRATCHPAD"); mkdir "$d/tarjetas"` (una lectura vieja daría versiones viejas).
+1. Crea una carpeta nueva y dentro `tarjetas`: `d=$(mktemp -d); mkdir "$d/tarjetas"` (una lectura vieja daría versiones viejas).
 2. `ArtifactData` `list` de `tarjetas` con `query: {"limit": 1000}` y `out_dir: "$d"`. El resultado lista cada documento con su versión; esos archivos no la incluyen.
 3. `narrador tablero plan --tarjetas "$d/tarjetas" --versiones '{"id": version, ...}' `, copiando las versiones de ese listado. Si la colección está vacía, `'{}'`.
 4. Si `lotes` trae algo, `ArtifactData` `batch` con cada lote, tal cual. Si falla con `version_mismatch`, el usuario movió algo: vuelve al paso 1.
