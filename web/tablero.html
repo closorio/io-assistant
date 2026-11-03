@@ -3,32 +3,44 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@85,600;100,500&family=IBM+Plex+Sans:wght@400;500&family=IBM+Plex+Mono:wght@400&display=swap">
 <style>
-/* Mesa de guardia: cuatro columnas de igual peso; el nivel se lee por forma y color antes que por texto. */
+/* Mesa de guardia: primero qué atender, después el tablero; el detalle se abre a un lado sin perder el sitio. */
 :root {
-  --bg: #eef1f4; --panel: #e2e7ec; --card: #fbfcfd; --line: #c6ced6; --fg: #17212b; --muted: #55626f; --accent: #1f5673;
-  --rojo: #b3261e; --rojo-bg: #fbe9e7; --ambar: #8a5a00; --ambar-bg: #fdf0d5;
+  --bg: #eef1f4; --panel: #e2e7ec; --card: #fbfcfd; --line: #c6ced6; --fg: #17212b; --muted: #55626f; --accent: #1f5673; --accent-fg: #ffffff;
+  --rojo: #b3261e; --rojo-bg: #fbe9e7; --ambar: #8a5a00; --ambar-bg: #fdf0d5; --velo: rgba(23, 33, 43, .45);
   --display: "Archivo", "Arial Narrow", Arial, sans-serif;
   --body: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
   --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
 }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
-  --bg: #12181e; --panel: #1a222a; --card: #232d37; --line: #3a4753; --fg: #e8edf1; --muted: #a0adb9; --accent: #7fb9d6;
-  --rojo: #ff9d94; --rojo-bg: #4a1d1a; --ambar: #f2c063; --ambar-bg: #41310f; color-scheme: dark;
+  --bg: #12181e; --panel: #1a222a; --card: #232d37; --line: #3a4753; --fg: #e8edf1; --muted: #a0adb9; --accent: #7fb9d6; --accent-fg: #10202a;
+  --rojo: #ff9d94; --rojo-bg: #4a1d1a; --ambar: #f2c063; --ambar-bg: #41310f; --velo: rgba(0, 0, 0, .6); color-scheme: dark;
 } }
 :root[data-theme="dark"] {
-  --bg: #12181e; --panel: #1a222a; --card: #232d37; --line: #3a4753; --fg: #e8edf1; --muted: #a0adb9; --accent: #7fb9d6;
-  --rojo: #ff9d94; --rojo-bg: #4a1d1a; --ambar: #f2c063; --ambar-bg: #41310f; color-scheme: dark;
+  --bg: #12181e; --panel: #1a222a; --card: #232d37; --line: #3a4753; --fg: #e8edf1; --muted: #a0adb9; --accent: #7fb9d6; --accent-fg: #10202a;
+  --rojo: #ff9d94; --rojo-bg: #4a1d1a; --ambar: #f2c063; --ambar-bg: #41310f; --velo: rgba(0, 0, 0, .6); color-scheme: dark;
 }
 body { background: var(--bg); color: var(--fg); font: 400 14px/1.45 var(--body); }
-.pagina { display: grid; gap: 16px; padding-block: 20px 32px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
-header { display: flex; flex-wrap: wrap; gap: 8px 24px; align-items: baseline; justify-content: space-between; }
+.pagina { display: grid; gap: 16px; padding-block: 20px 72px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+header { display: grid; gap: 4px; }
 h1 { margin: 0; font: 600 26px/1.1 var(--display); font-stretch: 85%; text-wrap: balance; }
-.resumen { margin: 4px 0 0; color: var(--muted); font-variant-numeric: tabular-nums; }
-label { color: var(--muted); font-size: 12px; }
-select { font: inherit; color: var(--fg); background: var(--card); border: 1px solid var(--line); border-radius: 4px; padding: 5px 6px; max-width: 100%; }
+.resumen { margin: 0; color: var(--muted); font-variant-numeric: tabular-nums; }
+button { font: inherit; color: inherit; cursor: pointer; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.filtro { display: flex; gap: 8px; align-items: center; }
-#aviso { margin: 0; padding: 8px 12px; border: 1px solid var(--line); background: var(--ambar-bg); color: var(--fg); border-radius: 4px; }
+#caducado { margin: 0; padding: 8px 12px; background: var(--ambar-bg); border-radius: 4px; }
+
+.foco { display: grid; gap: 8px; }
+.foco h2, .filtros-titulo { margin: 0; font: 600 15px/1.2 var(--display); }
+.foco ol { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+@media (max-width: 760px) { .foco ol { grid-template-columns: minmax(0, 1fr); } }
+.foco-item { width: 100%; height: 100%; text-align: left; background: var(--card); border: 1px solid var(--line); border-radius: 4px; padding: 10px; display: grid; gap: 4px; align-content: start; }
+.foco-item:hover, .tarjeta:hover { border-color: var(--accent); }
+.foco-paso { color: var(--muted); font-size: 13px; }
+
+.filtros { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.filtro { background: transparent; border: 1px solid var(--line); border-radius: 4px; padding: 3px 8px; font-size: 13px; }
+.filtro[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+.filtro span { font-family: var(--mono); font-size: 12px; margin-left: 4px; }
+
 .tablero { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; align-items: start; }
 @media (max-width: 960px) { .tablero { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 560px) { .tablero { grid-template-columns: minmax(0, 1fr); } }
@@ -37,36 +49,50 @@ select { font: inherit; color: var(--fg); background: var(--card); border: 1px s
 .columna h2 { margin: 0; font: 600 15px/1.2 var(--display); display: flex; justify-content: space-between; gap: 8px; }
 .columna h2 span { font: 400 13px var(--mono); color: var(--muted); }
 .vacia { margin: 0; color: var(--muted); font-size: 13px; }
-.tarjeta { background: var(--card); border: 1px solid var(--line); border-radius: 4px; padding: 10px; display: grid; gap: 6px; min-width: 0; }
-.tarjeta[draggable="true"] { cursor: grab; }
-.tarjeta h3 { margin: 0; font: 500 14px/1.3 var(--body); overflow-wrap: anywhere; }
-.cliente { font: 400 12px var(--mono); color: var(--muted); overflow-wrap: anywhere; }
+
+.tarjeta { background: var(--card); border: 1px solid var(--line); border-radius: 4px; padding: 10px; display: grid; gap: 6px; min-width: 0; cursor: pointer; }
+.etiqueta { font: 400 12px var(--mono); color: var(--muted); overflow-wrap: anywhere; }
+.titular { margin: 0; font: 500 14px/1.3 var(--body); overflow-wrap: anywhere; }
 .chips { display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; }
 .chip { font-size: 12px; padding: 1px 6px; border-radius: 3px; border: 1px solid var(--line); color: var(--muted); }
 .chip.rojo { background: var(--rojo-bg); color: var(--rojo); border-color: transparent; font-weight: 500; }
 .chip.ambar { background: var(--ambar-bg); color: var(--ambar); border-color: transparent; font-weight: 500; }
 .dias { font: 400 12px var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
-details summary { cursor: pointer; color: var(--accent); font-size: 12px; }
-details ul { margin: 6px 0 0; padding-left: 16px; display: grid; gap: 3px; font-size: 13px; overflow-wrap: anywhere; }
-details h4 { margin: 8px 0 0; font: 500 12px var(--body); color: var(--muted); }
-.mover { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
-.mover select { font-size: 12px; padding: 3px 4px; min-width: 0; }
+
+dialog { margin: 0 0 0 auto; height: 100%; max-height: none; width: min(460px, 100%); max-width: 100%; border: 0; border-left: 1px solid var(--line); background: var(--bg); color: var(--fg); padding: 0; }
+dialog::backdrop { background: var(--velo); }
+.panel { display: grid; gap: 16px; align-content: start; padding-block: max(16px, env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-bottom, 0px)); padding-left: 16px; padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.panel-cabeza { display: flex; justify-content: space-between; gap: 12px; align-items: start; }
+.panel h2 { margin: 2px 0 0; font: 600 20px/1.2 var(--display); font-stretch: 85%; overflow-wrap: anywhere; text-wrap: balance; }
+.panel h3 { margin: 0 0 4px; font: 500 12px var(--body); color: var(--muted); }
+.panel p { margin: 0; }
+.panel ul { margin: 0; padding-left: 16px; display: grid; gap: 3px; overflow-wrap: anywhere; }
+.cerrar, .boton { background: var(--card); border: 1px solid var(--line); border-radius: 4px; padding: 5px 10px; }
+.acciones { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.boton[aria-current="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); cursor: default; }
+.datos { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; font-variant-numeric: tabular-nums; }
+.datos div span { display: block; color: var(--muted); font-size: 12px; }
+
+#estado { position: fixed; left: max(16px, env(safe-area-inset-left, 0px)); right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(12px + env(safe-area-inset-bottom, 0px)); margin: 0 auto; max-width: 520px; padding: 8px 12px; background: var(--fg); color: var(--bg); border-radius: 4px; display: flex; gap: 12px; justify-content: space-between; align-items: center; }
+#estado button { background: transparent; border: 1px solid currentColor; border-radius: 3px; padding: 2px 8px; color: inherit; flex: none; }
 </style>
 
 <div class="pagina">
   <header>
-    <div>
-      <h1>Tablero de hallazgos</h1>
-      <p class="resumen" id="resumen">Cargando las tarjetas del parte…</p>
-    </div>
-    <div class="filtro">
-      <label for="filtro">Cliente</label>
-      <select id="filtro"><option value="">Todos</option></select>
-    </div>
+    <h1>Tablero de hallazgos</h1>
+    <p class="resumen" id="resumen">Cargando las tarjetas del parte…</p>
   </header>
-  <p id="aviso" role="status" aria-live="polite" hidden></p>
+  <p id="caducado" hidden></p>
+  <section class="foco" id="foco" aria-labelledby="foco-titulo" hidden>
+    <h2 id="foco-titulo">Empieza por aquí</h2>
+    <ol id="foco-lista"></ol>
+  </section>
+  <div class="filtros" id="filtros" role="group" aria-label="Filtrar por cliente"></div>
   <main class="tablero" id="tablero"></main>
 </div>
+
+<dialog id="detalle" aria-labelledby="detalle-titulo"><div class="panel" id="panel"></div></dialog>
+<div id="estado" role="status" aria-live="polite" hidden></div>
 
 <script>
 const COLUMNAS = [["nuevos", "Nuevos"], ["en_curso", "En curso"], ["dejados", "Dejados de lado"], ["resueltos", "Resueltos"]];
@@ -74,17 +100,33 @@ const NOMBRE = Object.fromEntries(COLUMNAS);
 const MARCAS = { automatica: "Se resolvió sola", reabierta: "Reabierta", empeorada: "Empeorada" };
 const ORIGEN = { parte: "parte", voz: "voz", pagina: "página" };
 const MAX_HISTORIAL = 20;
+const GUIA = {
+  meta_numero: ["Con la calidad baja, Meta puede limitar los envíos de ese número.", "Revisa la calidad y las plantillas recientes en el administrador de WhatsApp."],
+  meta_token: ["Sin un token válido, el bot deja de hablar con WhatsApp.", "Comprueba la caducidad del token en Meta y renuévalo si hace falta."],
+  chatwoot: ["Una conversación parada puede ser un cliente esperando respuesta.", "Abre la bandeja, asigna las que necesiten a una persona y cierra el resto."],
+  openai_saldo: ["Sin créditos, el bot responde con relleno aunque todo parezca ir bien. Esta cifra es una estimación.", "Mira el saldo real en Billing de OpenAI y díselo a Ío para calibrarlo."],
+  openai_clave: ["Lo que use esa clave local falla al llamar a OpenAI.", "Comprueba qué la usa y sustitúyela si sigue haciendo falta."],
+  wf_activo: ["Lo que automatiza ese workflow no se está ejecutando.", "Decide en n8n si debe estar activo y actívalo, o deja la tarjeta de lado."],
+  ejecuciones: ["Puede ser falta de tráfico, o un flujo que no se ejecuta o no deja registro.", "Abre el workflow en n8n y comprueba si debería haber ejecuciones."],
+  env_permisos: ["Riesgo bajo mientras este equipo solo tenga tu usuario.", "Cuando convenga, deja el archivo legible solo para ti con permisos 600."],
+  tls: ["Un certificado caducado corta el servicio para los clientes.", "Comprueba la renovación automática o renuévalo antes de que venza."],
+  n8n: ["Si n8n no responde, los bots de ese cliente se paran.", "Comprueba el contenedor y el servidor."],
+  supabase: ["Sin base de datos, el bot pierde sus datos de consulta.", "Comprueba el estado del proyecto en Supabase."],
+  tester: ["El chat de pruebas no permite comprobar cambios antes de publicarlos.", "Prueba a entrar en él y revisa el acceso."],
+  vps: ["Un servidor justo de recursos afecta a todos los clientes que aloja.", "Revisa disco y memoria en el servidor."],
+};
 
-const tablero = document.getElementById("tablero");
-const filtro = document.getElementById("filtro");
-const resumen = document.getElementById("resumen");
-const aviso = document.getElementById("aviso");
-
+const $ = (id) => document.getElementById(id);
 let tarjetas = [];
 let puedeMover = true;
 let baseDatos = null;
 let cargada = false;
-const abiertas = new Set();
+let filtro = leerFiltro();
+let abierta = null;
+let arrastrando = false;
+let pendiente = false;
+let temporizador = null;
+let origenFoco = null;
 
 function leerFiltro() { try { return localStorage.getItem("filtro") || ""; } catch { return ""; } }
 function guardarFiltro(valor) { try { localStorage.setItem("filtro", valor); } catch {} }
@@ -96,91 +138,169 @@ function nodo(etiqueta, clase, texto) {
   return el;
 }
 
-function avisar(texto) {
-  aviso.textContent = texto || "";
-  aviso.hidden = !texto;
-}
+function mayuscula(texto) { return texto ? texto[0].toUpperCase() + texto.slice(1) : ""; }
+function nombreTitulo(t) { return mayuscula(t.titulo || t.check || t.id); }
+function cliente(t) { return t.cliente || "global"; }
 
 function hoy() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-function diasAbierta(t) {
-  const inicio = Date.parse(t.primera_vez);
-  const fin = Date.parse(hoy());
-  return Number.isNaN(inicio) ? null : Math.max(0, Math.round((fin - inicio) / 86400000));
+function diasDesde(fecha) {
+  const inicio = Date.parse(fecha);
+  return Number.isNaN(inicio) ? null : Math.max(0, Math.round((Date.parse(hoy()) - inicio) / 86400000));
 }
 
 function ordenar(lista) {
   return [...lista].sort((a, b) => (a.nivel === "rojo" ? 0 : 1) - (b.nivel === "rojo" ? 0 : 1) || String(a.primera_vez).localeCompare(String(b.primera_vez)));
 }
 
+function avisar(texto, deshacer) {
+  const estado = $("estado");
+  clearTimeout(temporizador);
+  estado.replaceChildren(nodo("span", "", texto || ""));
+  estado.hidden = !texto;
+  if (deshacer) {
+    const boton = nodo("button", "", "Deshacer");
+    boton.type = "button";
+    boton.addEventListener("click", deshacer);
+    estado.append(boton);
+  }
+  if (texto) temporizador = setTimeout(() => { estado.hidden = true; }, deshacer ? 8000 : 6000);
+}
+
+async function escribir(t, destino, marca) {
+  const linea = { fecha: hoy(), de: t.columna, a: destino, origen: "pagina" };
+  await baseDatos.doc(`tarjetas/${t.id}`).update({ columna: destino, marca, historial: [...(t.historial || []), linea].slice(-MAX_HISTORIAL) });
+}
+
 async function mover(id, destino) {
   const t = tarjetas.find((x) => x.id === id);
   if (!t || t.columna === destino || !baseDatos) return;
-  const linea = { fecha: hoy(), de: t.columna, a: destino, origen: "pagina" };
+  const antes = { columna: t.columna, marca: t.marca ?? null };
   try {
-    await baseDatos.doc(`tarjetas/${id}`).update({
-      columna: destino,
-      marca: null,
-      historial: [...(t.historial || []), linea].slice(-MAX_HISTORIAL),
+    await escribir(t, destino, null);
+    avisar(`${nombreTitulo(t)} de ${cliente(t)}, en ${NOMBRE[destino]}.`, async () => {
+      const actual = tarjetas.find((x) => x.id === id);
+      try {
+        await escribir(actual, antes.columna, antes.marca);
+        avisar("Movimiento deshecho.");
+      } catch { avisar(`No se pudo deshacer. Sigue en ${NOMBRE[actual.columna]}.`); }
     });
-    avisar("");
-  } catch (e) {
-    avisar(`No se pudo mover «${t.titulo}». Sigue en ${NOMBRE[t.columna]}. Vuelve a intentarlo.`);
-    pintar();
+  } catch {
+    avisar(`No se pudo mover ${nombreTitulo(t)}. Sigue en ${NOMBRE[t.columna]}. Vuelve a intentarlo.`);
   }
+}
+
+function chips(t) {
+  const caja = nodo("div", "chips");
+  if (t.nivel === "rojo") caja.append(nodo("span", "chip rojo", "■ Rojo"));
+  if (t.nivel === "ambar") caja.append(nodo("span", "chip ambar", "▲ Ámbar"));
+  if (MARCAS[t.marca]) caja.append(nodo("span", "chip", MARCAS[t.marca]));
+  if (t.fiabilidad === "estimado") caja.append(nodo("span", "chip", "Estimado"));
+  const dias = diasDesde(t.primera_vez);
+  if (dias !== null) caja.append(nodo("span", "dias", dias === 1 ? "1 día" : `${dias} días`));
+  return caja;
+}
+
+function abrir(id, origen) {
+  abierta = id;
+  origenFoco = origen || null;
+  pintarDetalle();
+  if (!$("detalle").open) $("detalle").showModal();
+}
+
+function pintarDetalle() {
+  const t = tarjetas.find((x) => x.id === abierta);
+  const panel = $("panel");
+  if (!t) { if ($("detalle").open) $("detalle").close(); return; }
+  const cabeza = nodo("div", "panel-cabeza");
+  const titulos = nodo("div");
+  const titulo = nodo("h2", "", nombreTitulo(t));
+  titulo.id = "detalle-titulo";
+  titulos.append(nodo("div", "etiqueta", cliente(t)), titulo);
+  const cerrar = nodo("button", "cerrar", "Cerrar");
+  cerrar.type = "button";
+  cerrar.addEventListener("click", () => $("detalle").close());
+  cabeza.append(titulos, cerrar);
+
+  const hallado = nodo("section");
+  hallado.append(nodo("h3", "", "Qué se ha detectado"));
+  const lista = nodo("ul");
+  (t.detalle || []).forEach((v) => lista.append(nodo("li", "", v)));
+  hallado.append(lista);
+
+  const piezas = [cabeza, chips(t), hallado];
+  const guia = GUIA[t.check];
+  if (guia) {
+    const importa = nodo("section");
+    importa.append(nodo("h3", "", "Por qué importa"), nodo("p", "", guia[0]));
+    const paso = nodo("section");
+    paso.append(nodo("h3", "", "Siguiente paso sugerido"), nodo("p", "", guia[1]));
+    piezas.push(importa, paso);
+  }
+
+  if (puedeMover) {
+    const acciones = nodo("section");
+    acciones.append(nodo("h3", "", "Mover a"));
+    const botones = nodo("div", "acciones");
+    COLUMNAS.forEach(([valor, texto]) => {
+      const boton = nodo("button", "boton", texto);
+      boton.type = "button";
+      boton.setAttribute("aria-current", String(t.columna === valor));
+      boton.addEventListener("click", () => mover(t.id, valor));
+      botones.append(boton);
+    });
+    acciones.append(botones);
+    piezas.push(acciones);
+  }
+
+  const datos = nodo("section", "datos");
+  [["Detectado por primera vez", t.primera_vez], ["Último parte con este hallazgo", t.ultima_vez]].forEach(([k, v]) => {
+    const fila = nodo("div");
+    fila.append(nodo("span", "", k), document.createTextNode(v || "sin fecha"));
+    datos.append(fila);
+  });
+  piezas.push(datos);
+
+  const copiar = nodo("button", "cerrar", "Copiar resumen");
+  copiar.type = "button";
+  copiar.addEventListener("click", async () => {
+    const texto = `${cliente(t)}: ${nombreTitulo(t)}. ${(t.detalle || []).join("; ")}. Detectado el ${t.primera_vez}.${guia ? ` ${guia[1]}` : ""}`;
+    try {
+      await navigator.clipboard.writeText(texto);
+      avisar("Resumen copiado.");
+    } catch { avisar("No se pudo copiar. Selecciona el texto del panel."); }
+  });
+  piezas.push(copiar);
+
+  const historia = nodo("section");
+  historia.append(nodo("h3", "", "Historial"));
+  const pasos = nodo("ul");
+  [...(t.historial || [])].reverse().forEach((h) => {
+    const de = h.de ? `${NOMBRE[h.de] || h.de} → ` : "";
+    pasos.append(nodo("li", "", `${h.fecha}: ${de}${NOMBRE[h.a] || h.a} (${ORIGEN[h.origen] || h.origen})`));
+  });
+  historia.append(pasos);
+  piezas.push(historia);
+  panel.replaceChildren(...piezas);
 }
 
 function pintarTarjeta(t) {
   const el = nodo("article", "tarjeta");
+  el.tabIndex = 0;
+  el.setAttribute("role", "button");
+  el.setAttribute("aria-haspopup", "dialog");
+  el.dataset.id = t.id;
   el.draggable = puedeMover;
-  el.addEventListener("dragstart", (e) => e.dataTransfer.setData("text/plain", t.id));
-
-  el.append(nodo("div", "cliente", t.cliente || "global"), nodo("h3", "", t.titulo || t.check || t.id));
-
-  const chips = nodo("div", "chips");
-  if (t.nivel === "rojo") chips.append(nodo("span", "chip rojo", "■ Rojo"));
-  if (t.nivel === "ambar") chips.append(nodo("span", "chip ambar", "▲ Ámbar"));
-  if (MARCAS[t.marca]) chips.append(nodo("span", "chip", MARCAS[t.marca]));
-  if (t.fiabilidad === "estimado") chips.append(nodo("span", "chip", "Estimado"));
-  const dias = diasAbierta(t);
-  if (dias !== null) chips.append(nodo("span", "dias", `${dias} d`));
-  el.append(chips);
-
-  const detalle = nodo("details");
-  detalle.open = abiertas.has(t.id);
-  detalle.addEventListener("toggle", () => { detalle.open ? abiertas.add(t.id) : abiertas.delete(t.id); });
-  detalle.append(nodo("summary", "", "Detalle e historial"));
-  const valores = nodo("ul");
-  (t.detalle || []).forEach((v) => valores.append(nodo("li", "", v)));
-  detalle.append(valores, nodo("h4", "", "Historial"));
-  const historial = nodo("ul");
-  [...(t.historial || [])].reverse().forEach((h) => {
-    const de = h.de ? `${NOMBRE[h.de] || h.de} → ` : "";
-    historial.append(nodo("li", "", `${h.fecha}: ${de}${NOMBRE[h.a] || h.a} (${ORIGEN[h.origen] || h.origen})`));
+  el.addEventListener("dragstart", (e) => { arrastrando = true; e.dataTransfer.setData("text/plain", t.id); });
+  el.addEventListener("dragend", () => { arrastrando = false; if (pendiente) pintar(); });
+  el.addEventListener("click", () => abrir(t.id, el));
+  el.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); abrir(t.id, el); }
   });
-  detalle.append(historial);
-  el.append(detalle);
-
-  if (puedeMover) {
-    const fila = nodo("div", "mover");
-    const idControl = `mover-${t.id}`;
-    const etiqueta = nodo("label", "", "Mover a");
-    etiqueta.htmlFor = idControl;
-    const menu = nodo("select");
-    menu.id = idControl;
-    COLUMNAS.forEach(([valor, texto]) => {
-      const opcion = nodo("option", "", texto);
-      opcion.value = valor;
-      opcion.selected = valor === t.columna;
-      menu.append(opcion);
-    });
-    menu.addEventListener("change", () => mover(t.id, menu.value));
-    fila.append(etiqueta, menu);
-    el.append(fila);
-  }
+  el.append(nodo("div", "etiqueta", `${cliente(t)} · ${t.titulo || t.check || ""}`), nodo("p", "titular", (t.detalle || [])[0] || nombreTitulo(t)), chips(t));
   return el;
 }
 
@@ -203,29 +323,71 @@ function pintarColumna(valor, titulo, lista) {
   return col;
 }
 
-function pintarFiltro() {
-  const actual = filtro.value || leerFiltro();
-  const clientes = [...new Set(tarjetas.map((t) => t.cliente || "global"))].sort();
-  filtro.replaceChildren(Object.assign(nodo("option", "", "Todos"), { value: "" }));
-  clientes.forEach((c) => filtro.append(Object.assign(nodo("option", "", c), { value: c })));
-  filtro.value = clientes.includes(actual) ? actual : "";
+function pintarFiltros(activas) {
+  const clientes = [...new Set(tarjetas.map(cliente))].sort();
+  if (filtro && !clientes.includes(filtro)) filtro = "";
+  const caja = $("filtros");
+  caja.hidden = !clientes.length;
+  const boton = (valor, texto, cuenta) => {
+    const b = nodo("button", "filtro", texto);
+    b.type = "button";
+    b.setAttribute("aria-pressed", String(filtro === valor));
+    b.append(nodo("span", "", String(cuenta)));
+    b.addEventListener("click", () => { filtro = valor; guardarFiltro(valor); pintar(); });
+    return b;
+  };
+  caja.replaceChildren(boton("", "Todos", activas.length), ...clientes.map((c) => boton(c, c, activas.filter((t) => cliente(t) === c).length)));
+}
+
+function pintarFoco(activas) {
+  const orden = ordenar(activas.filter((t) => t.columna === "nuevos" || t.nivel === "rojo")).slice(0, 3);
+  $("foco").hidden = !orden.length;
+  $("foco-lista").replaceChildren(...orden.map((t) => {
+    const li = nodo("li");
+    const b = nodo("button", "foco-item");
+    b.type = "button";
+    b.setAttribute("aria-haspopup", "dialog");
+    b.addEventListener("click", () => abrir(t.id, b));
+    const guia = GUIA[t.check];
+    b.append(nodo("span", "etiqueta", `${cliente(t)} · ${t.titulo || t.check || ""}`), nodo("span", "titular", (t.detalle || [])[0] || nombreTitulo(t)));
+    if (guia) b.append(nodo("span", "foco-paso", guia[1]));
+    b.append(chips(t));
+    li.append(b);
+    return li;
+  }));
 }
 
 function pintar() {
-  pintarFiltro();
-  const visibles = tarjetas.filter((t) => !filtro.value || (t.cliente || "global") === filtro.value);
+  if (arrastrando) { pendiente = true; return; }
+  pendiente = false;
+  const enfocada = document.activeElement?.dataset?.id;
   const activas = tarjetas.filter((t) => t.columna === "nuevos" || t.columna === "en_curso");
-  const rojas = activas.filter((t) => t.nivel === "rojo").length;
+  pintarFiltros(activas);
+  const visibles = tarjetas.filter((t) => !filtro || cliente(t) === filtro);
+  pintarFoco(activas.filter((t) => !filtro || cliente(t) === filtro));
   if (cargada) {
+    const rojas = activas.filter((t) => t.nivel === "rojo").length;
     const ultima = tarjetas.map((t) => t.ultima_vez).filter(Boolean).sort().pop();
-    resumen.textContent = tarjetas.length
-      ? `${activas.length} activas, ${rojas} en rojo. Último parte: ${ultima || "sin fecha"}.`
+    const curso = activas.filter((t) => t.columna === "en_curso").length;
+    $("resumen").textContent = tarjetas.length
+      ? `${activas.length} activas, ${rojas} en rojo, ${curso} en curso. Último parte: ${ultima || "sin fecha"}.`
       : "Aún no hay tarjetas. Aparecerán cuando Ío dé el próximo parte.";
+    const antiguedad = ultima ? diasDesde(ultima) : null;
+    $("caducado").hidden = !antiguedad;
+    if (antiguedad) $("caducado").textContent = `El último parte es de hace ${antiguedad === 1 ? "1 día" : `${antiguedad} días`}: puede haber hallazgos nuevos que aún no aparecen aquí.`;
   }
-  tablero.replaceChildren(...COLUMNAS.map(([valor, titulo]) => pintarColumna(valor, titulo, visibles.filter((t) => t.columna === valor))));
+  $("tablero").replaceChildren(...COLUMNAS.map(([valor, titulo]) => pintarColumna(valor, titulo, visibles.filter((t) => t.columna === valor))));
+  if (enfocada) document.querySelector(`[data-id="${CSS.escape(enfocada)}"]`)?.focus();
+  if ($("detalle").open) pintarDetalle();
 }
 
-filtro.addEventListener("change", () => { guardarFiltro(filtro.value); pintar(); });
+$("detalle").addEventListener("click", (e) => { if (e.target === $("detalle")) $("detalle").close(); });
+$("detalle").addEventListener("close", () => {
+  const id = abierta;
+  abierta = null;
+  const destino = origenFoco?.isConnected ? origenFoco : document.querySelector(`[data-id="${CSS.escape(id || "")}"]`);
+  destino?.focus();
+});
 pintar();
 
 (async () => {
@@ -233,27 +395,27 @@ pintar();
   puedeMover = user ? user.isOwner() : true;
   if (!db) {
     puedeMover = false;
-    resumen.textContent = "Esta vista no puede leer las tarjetas.";
-    avisar("No se puede saber el estado de los hallazgos desde aquí. Abre la página con tu cuenta de Claude.");
+    $("resumen").textContent = "Esta vista no puede leer las tarjetas. Abre la página con tu cuenta de Claude.";
     pintar();
     return;
   }
   baseDatos = db;
   const espera = setTimeout(() => {
-    avisar(cargada ? "Las tarjetas pueden no estar al día: no llega respuesta." : "Las tarjetas no cargan todavía. Esto no significa que no haya hallazgos.");
+    $("caducado").hidden = false;
+    $("caducado").textContent = "Las tarjetas no llegan todavía. Esto no significa que no haya hallazgos.";
   }, 10000);
   db.collection("tarjetas").onSnapshot((snap) => {
     tarjetas = snap.docs.map((d) => ({ ...d.data(), id: d.id }));
     if (!snap.metadata.fromCache) {
       cargada = true;
       clearTimeout(espera);
-      avisar("");
     }
     pintar();
   }, () => {
     clearTimeout(espera);
     puedeMover = false;
-    avisar("Se perdió la conexión con las tarjetas. Recarga la página para verlas al día.");
+    $("caducado").hidden = false;
+    $("caducado").textContent = "Se perdió la conexión con las tarjetas. Recarga la página para verlas al día.";
     pintar();
   });
 })();
