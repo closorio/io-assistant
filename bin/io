@@ -37,6 +37,15 @@ def avisar(texto: str) -> None:
         pass
 
 
+def arrancar_vigilante():
+    """Avisa por voz de quién espera un permiso y muere con esta sesión. Nunca impide arrancar a Ío."""
+    try:
+        import permisos
+        return permisos.arrancar_vigilante(os.getpid())
+    except Exception:
+        return None
+
+
 def main(args: list[str]) -> int:
     RUNTIME.mkdir(parents=True, exist_ok=True)
     cerrojo = open(IO_LOCK, "a")  # descriptor no heredable: claude y sus hijos no se quedan el cerrojo
@@ -68,11 +77,14 @@ def main(args: list[str]) -> int:
     IO_JSON.write_text(json.dumps({"session_id": sesion, "pid": os.getpid(), "inicio": time.time(),
                                    "ultima": sesion}), encoding="utf-8")
     orden = [claude, "--agent", "narrador:io", "--permission-mode", "auto", "--name", "Ío", *extra]
+    vigilante = arrancar_vigilante()
     try:
         return subprocess.run(orden, cwd=CARPETA, env=dict(os.environ, NARRADOR_IO="1")).returncode
     except KeyboardInterrupt:
         return 130
     finally:
+        if vigilante:
+            vigilante.terminate()
         IO_JSON.write_text(json.dumps({"ultima": sesion, "fin": time.time()}), encoding="utf-8")
 
 

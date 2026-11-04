@@ -74,7 +74,9 @@ def vivas() -> None:
         if archivo.exists():
             titulo = metadatos_cwd(archivo, completo=False)[0]
         marca = " (esta)" if sesion == PROPIA else ""
-        print(f"{a.get('name', '?')}{marca}  {a.get('status', '?')}  {a.get('kind', '?')}  {corta(cwd)}"
+        estado = a.get("status") or a.get("state") or "?"  # las de fondo sin proceso solo traen `state`
+        motivo = f" ({a['waitingFor']})" if a.get("waitingFor") else ""
+        print(f"{a.get('name', '?')}{marca}  {estado}{motivo}  {a.get('kind', '?')}  {corta(cwd)}"
               f"\n    sesión {sesion[:8]}  «{titulo or 'sin título'}»")
 
 
@@ -361,7 +363,7 @@ def esperar(nombre: str, maximo_min: float | None = None) -> int:
             vivo = next((a for a in agentes(todas=True) if a.get("name") == t["nombre"]), None)
             sin_actividad = sin_actividad + 1 if not vivo or vivo.get("status") != "busy" else 0
             if sin_actividad >= 2:  # dos consultas seguidas sin trabajar y sin informe
-                estado = "parado sin informe" if not vivo else f"{vivo.get('status', 'parado')} sin informe"
+                estado = "parado sin informe" if not vivo else f"{vivo.get('status') or vivo.get('state') or 'parado'} sin informe"
                 break
         if maximo_min is not None and ahora - inicio > maximo_min * 60:
             estado = "sigue trabajando"

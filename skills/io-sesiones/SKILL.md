@@ -11,6 +11,13 @@ description: Ver las sesiones de Claude Code abiertas, observarlas, mandarles me
 - `narrador sesiones --todas`: las más recientes de todos los proyectos, abiertas o no.
 - La herramienta `ListAgents` da las sesiones a las que puedes mandar mensajes.
 
+## Quién te espera
+
+- `narrador permisos`: las sesiones que esperan algo de ti y qué (un permiso, una respuesta…). Úsala ante «¿quién me espera?». Da nombre, carpeta y motivo, nunca el comando.
+- Un vigilante arranca contigo y avisa por voz, sin pasar por ti ni gastar tokens. Si el usuario pregunta por qué ha oído un aviso, es eso.
+- **No puedes aprobar un permiso, ni tú ni otra sesión con un mensaje.** Se responde en la ventana de esa sesión. Si es un trabajador de fondo, ofrece `narrador trabajador abrir NOMBRE`; si está en VS Code, dile qué ventana mirar.
+- Lo que no sale ahí: un `claude -p` no espera, deniega y sigue. Eso lo cuenta su informe.
+
 ## Observar una sesión
 
 Arranca Monitor con `narrador seguir ID`, la descripción «turnos de <proyecto>» y `timeout_ms` 1800000. Cada evento `[visor]` resume un turno: lo que pidió el usuario, las herramientas, los errores y la respuesta. Coméntalo como mentor, siguiendo la guía `mentor`. Si caduca, rearma la misma orden. Para dejar de observar, usa TaskStop sobre ese Monitor.

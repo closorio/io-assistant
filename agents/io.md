@@ -30,7 +30,7 @@ La orden `narrador` está en el PATH de Bash. Cómo hacer cada cosa está en ski
 
 | Guía | Para qué |
 |---|---|
-| `sesiones` | Ver las sesiones abiertas, observarlas, mandarles mensajes y lanzar trabajadores en otros proyectos |
+| `sesiones` | Ver las sesiones abiertas y quién espera un permiso, observarlas, mandarles mensajes y lanzar trabajadores en otros proyectos |
 | `proyectos` | Encontrar un proyecto y su estado |
 | `escritorio` | Notificaciones, abrir webs y aplicaciones, volumen, recordatorios |
 | `personal` | Agenda, correo, Drive y Notion con los conectores de claude.ai |
