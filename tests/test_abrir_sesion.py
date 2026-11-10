@@ -144,6 +144,43 @@ class Esperar(Base):
             abrir_sesion.esperar("no-existe")
 
 
+class Cerrar(Base):
+    def test_solo_cierra_lo_abierto_con_plan(self):
+        self.sesion(status="busy")  # viva, pero no está en el registro: puede ser del usuario
+        with mock.patch.object(abrir_sesion.os, "kill") as matar:
+            codigo, _, errores = self.salida(abrir_sesion.cerrar, SID)
+        self.assertEqual(codigo, 1)
+        self.assertIn("no la cierro", errores)
+        matar.assert_not_called()
+
+    def test_ya_cerrada(self):
+        self.registro.append({"nombre": "Tema (plan)", "tipo": "plan", "session_id": SID, "inicio": time.time()})
+        self.assertEqual(self.salida(abrir_sesion.cerrar, "Tema")[0], 0)
+
+    def test_termina_el_proceso_y_marca_el_fin(self):
+        import subprocess
+        proc = subprocess.Popen(["sleep", "60"])
+        self.addCleanup(proc.kill)
+        self.registro.append({"nombre": "Tema (plan)", "tipo": "plan", "session_id": SID, "inicio": time.time()})
+        self.sesion(pid=proc.pid, status="waiting")
+        hilo = __import__("threading").Thread(target=proc.wait)  # recoge al hijo para que deje de contar como vivo
+        hilo.start()
+        codigo, fuera, _ = self.salida(abrir_sesion.cerrar, SID[:8])
+        hilo.join()
+        self.assertEqual(codigo, 0)
+        self.assertIn("cerrada, con su terminal", fuera)
+        self.assertTrue(asistente.vigilada(SID))
+
+    def test_la_ventana_solo_se_queda_si_falla_al_arrancar(self):
+        import subprocess
+        def correr(*orden):
+            return subprocess.run(["bash", "-c", abrir_sesion.QUEDA_ABIERTA, "io", *orden], input="\n",
+                                  capture_output=True, text=True, timeout=10).stdout
+        self.assertIn("no arrancó", correr("false"))
+        self.assertEqual(correr("true"), "")
+        self.assertEqual(correr("bash", "-c", "kill -TERM $$"), "")  # cerrada por señal: sin mensaje
+
+
 class SinVigilar(Base):
     def test_plan_viva_sin_vigilante(self):
         self.registro.append({"nombre": "Tema (plan)", "tipo": "plan", "session_id": SID, "inicio": time.time()})

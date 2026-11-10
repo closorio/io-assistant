@@ -3,6 +3,7 @@
   narrador sesion abrir NOMBRE|ID
   narrador sesion plan PROYECTO ARCHIVO_PROMPT [--titulo T] [--modelo fable]
   narrador sesion esperar ID|TÍTULO [--max MIN]
+  narrador sesion cerrar ID|TÍTULO
 
 - Sesión en segundo plano (trabajador): terminal nueva con `claude attach`, enganchada a su chat.
 - Sesión interactiva (terminal o VS Code): trae su ventana al frente con wmctrl.
@@ -11,6 +12,7 @@
   arrancado, la apunta en el registro y dice cómo vigilarla.
 - esperar: bloquea hasta que esa sesión se queda parada (plan listo, pregunta, permiso) o se cierra, e
   imprime un solo evento: pensado para un Monitor de Ío.
+- cerrar: termina una sesión abierta con `plan` y cierra su terminal entera.
 
 Busca en ~/.claude/sessions/*.json por nombre exacto, prefijo del id o parte del nombre.
 """
@@ -35,7 +37,10 @@ MODELO_PLAN = "fable"
 ESPERA_APERTURA = 20  # s que se espera a que la sesión nueva aparezca
 ESPERA_SESION = 15  # s entre miradas al estado de la sesión
 RECIENTE = 24 * 3600  # s: lo lanzado antes ya no cuenta como «sin vigilar»
-QUEDA_ABIERTA = '"$@" || { echo; echo "La sesión no arrancó o terminó con error. Pulsa Enter para cerrar."; read; }'
+# La ventana solo se queda abierta si claude falla al arrancar (sale con error en pocos segundos). Si la sesión
+# termina, o se cierra con `sesion cerrar` (señal, código >= 128), la terminal se cierra entera.
+QUEDA_ABIERTA = ('"$@"; c=$?; if [ $c -ne 0 ] && [ $c -lt 128 ] && [ $SECONDS -lt 15 ]; then echo; '
+                 'echo "La sesión no arrancó (código $c). Pulsa Enter para cerrar."; read; fi')
 MOTIVOS = {"permission prompt": "espera un permiso", "sandbox request": "espera un permiso de red",
            "input needed": "espera una respuesta", "dialog open": "tiene un diálogo abierto"}
 
@@ -283,6 +288,30 @@ def esperar(clave: str, maximo_min: float | None = None) -> int:
     return 0
 
 
+def cerrar(clave: str) -> int:
+    """Termina una sesión abierta con `plan` (solo esas: nunca una sesión del usuario) y cierra su terminal."""
+    apuntada = next((t for t in reversed(_registro()) if t.get("tipo") == "plan" and (
+        str(t.get("session_id", "")).startswith(clave) or clave.lower() in str(t.get("nombre", "")).lower())), None)
+    if not apuntada:
+        print(f"«{clave}» no es una sesión abierta con `narrador sesion plan`: no la cierro", file=sys.stderr)
+        return 1
+    ses = _por_id(apuntada["session_id"])
+    if ses is None:
+        print(f"la sesión «{apuntada['nombre']}» ya estaba cerrada")
+        return 0
+    pid = int(ses["pid"])
+    os.kill(pid, 15)
+    limite = time.monotonic() + 10
+    while time.monotonic() < limite and _viva(pid):
+        time.sleep(0.2)
+    if _viva(pid):
+        print(f"la sesión «{apuntada['nombre']}» no ha terminado tras 10 s (pid {pid})", file=sys.stderr)
+        return 1
+    marcar_vigilancia(apuntada["session_id"], fin=True)
+    print(f"sesión «{apuntada['nombre']}» cerrada, con su terminal")
+    return 0
+
+
 def _vivas() -> list[dict]:
     lista = []
     for f in SESIONES.glob("*.json"):
@@ -338,6 +367,8 @@ def main(args: list[str]) -> int:
         modelo, resto = _opcion(resto, "--modelo")
         if len(resto) == 2:
             return plan(resto[0], resto[1], titulo, modelo or MODELO_PLAN)
+    if len(args) == 2 and args[0] == "cerrar":
+        return cerrar(args[1])
     if args[:1] == ["esperar"]:
         maximo, resto = _opcion(args[1:], "--max")
         if len(resto) == 1:

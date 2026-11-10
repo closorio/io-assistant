@@ -65,7 +65,7 @@ Cuando el usuario pide algo «en modo plan», o el cambio es delicado, no planif
 3. **En el mismo turno**, un Monitor con la orden `narrador sesion esperar ID`, la descripción «fin de la sesión TEMA» y `timeout_ms` 1800000. Imprime un solo evento cuando el plan está listo para aprobar, cuando la sesión pregunta algo o cuando se cierra. Si el Monitor caduca, rearma la misma orden sin comentar nada.
 4. Al evento: una línea de voz («el plan de TEMA está listo en su ventana»). Si trae la ruta del plan, léelo y aplica «Al volver un informe o un plan». Si el usuario lo aprueba, la sesión sigue trabajando: vuelve a armar `narrador sesion esperar ID` para enterarte de cuándo acaba.
 5. Para seguirla turno a turno, además, `narrador seguir ID`. Para traer su ventana al frente, `narrador sesion abrir ID`.
-6. Si el usuario añade ideas después, no puedes escribirle: ponlas en un archivo del proyecto, para el registro, y relanza la sesión: para la anterior por PID (`ps -eo pid,cmd | grep permission-mode`, `kill PID`, nunca `pkill -f`) y ábrela otra vez con el prompt ampliado.
+6. Si el usuario añade ideas después, no puedes escribirle: ponlas en un archivo del proyecto, para el registro, y relanza la sesión: cierra la anterior con `narrador sesion cerrar ID` (termina la sesión y cierra su terminal entera; nunca `pkill -f`) y ábrela otra vez con el prompt ampliado.
 7. Si no está claro en qué proyecto va, pregúntalo con AskUserQuestion, con el más probable primero.
 
 ## Al volver un informe o un plan
