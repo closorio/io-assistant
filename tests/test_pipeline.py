@@ -142,6 +142,19 @@ class Pipeline(unittest.TestCase):
         daemon.vaciar(motivo="fin de la prueba")
 
 
+class Contrato(unittest.TestCase):
+    def test_pide_tres_listas_y_lleva_la_prioridad(self):
+        texto = asistente.PLANTILLA_CONTRATO.format(tarea="Arregla el login.", ruta="/tmp/x.md")
+        self.assertTrue(texto.startswith("Arregla el login."))
+        for trozo in ("## Hecho", "## Puertas", "## Bloqueos externos", "nunca `git push`", "camino crítico", "/tmp/x.md"):
+            self.assertIn(trozo, texto)
+        self.assertNotIn("queda pendiente", texto)
+
+    def test_el_resumen_de_voz_sigue_parando_en_el_primer_titulo(self):
+        informe = "Arreglé el login y los tests pasan.\n\n## Hecho\n- login\n\n## Puertas\n- push\n\n## Bloqueos externos\n- nada\n"
+        self.assertEqual(asistente.resumen_voz(informe), "Arreglé el login y los tests pasan.")
+
+
 class Esperar(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(__import__("tempfile").mkdtemp())
@@ -149,6 +162,7 @@ class Esperar(unittest.TestCase):
                   "modelo": "opus", "inicio": time.time() - 600, "tipo": "bg"}
         self.parches = [mock.patch.object(asistente, "_registro", lambda: [self.t]),
                         mock.patch.object(asistente, "_archivo_resultado", lambda nombre: self.tmp / f"{nombre}.md"),
+                        mock.patch.object(asistente, "VIGILANCIA", self.tmp / "vigilancia"),
                         mock.patch.object(asistente, "ESPERA_SONDEO", 0.05),
                         mock.patch.object(asistente, "INFORME_QUIETO", 0.0),
                         mock.patch.object(asistente, "ESPERA_AGENTES", 0.0)]

@@ -29,6 +29,9 @@
   narrador decisiones listar [-n N] [--sesion ID] [--proyecto P] [--desde AAAA-MM-DD] [--tipo T] [--json] | ruta
                              (registro de decisiones: lo que Claude iba a hacer y por qué)
   narrador sesion abrir NOMBRE|ID   (trabajador: terminal con su chat; interactiva: trae su ventana al frente)
+  narrador sesion plan PROYECTO ARCHIVO_PROMPT [--titulo T] [--modelo fable]   (abre una sesión en modo plan, comprueba que arranca y da su id)
+  narrador sesion esperar ID|TÍTULO [--max MIN]   (bloquea hasta que esa sesión se para o se cierra; para un Monitor de Ío)
+  narrador cierre resumen   (lo que el hook de cierre de turno ha bloqueado o anotado)
   narrador roadmap [--json] [PROYECTO]   (roadmap por proyecto desde su vault conocimiento/: avance, deriva, estimación; solo lectura)
 """
 
@@ -261,6 +264,9 @@ def main(args: list[str]) -> None:
     elif cmd == "sesion":
         import abrir_sesion
         sys.exit(abrir_sesion.main(resto))
+    elif cmd == "cierre":
+        import cierre
+        sys.exit(cierre.resumen())
     elif cmd == "roadmap":
         import roadmap
         sys.exit(roadmap.main(resto))

@@ -23,6 +23,7 @@ AVANCE = 180  # s de turno largo con actividad nueva antes de mandar un resumen 
 REANUDAR = 15 * 60  # s: con un estado guardado más reciente, se sigue donde se quedó
 CAMBIO = 5  # s entre comprobaciones de si hay una sesión ejecutora más nueva (tras /clear)
 COLA = 256 * 1024  # bytes del final del transcript que bastan para el título y el cwd
+COLA_TURNO = 4 * 1024 * 1024  # bytes del final donde suele caber el último turno
 
 INTERRUPCION = "[Request interrupted by user]"
 ESPERAN_USUARIO = {"AskUserQuestion", "ExitPlanMode"}
@@ -138,6 +139,49 @@ def texto_usuario(contenido) -> str:
         return " ".join([comando.group(1), argumentos.group(1) if argumentos else ""]).strip()
     texto = re.sub(r"<([a-z][\w-]*)[^>]*>.*?</\1>", " ", texto, flags=re.S)  # system-reminder, ide_selection…
     return " ".join(texto.split())
+
+
+def _turno_en(datos: bytes) -> tuple[list[str], list[str], bool]:
+    textos: list[str] = []
+    usos: list[str] = []
+    abierto = False
+    for linea in datos.split(b"\n"):
+        if b'"user"' not in linea and b'"assistant"' not in linea:  # los volcados de la API son enormes: ni se parsean
+            continue
+        try:
+            r = json.loads(linea)
+        except ValueError:
+            continue
+        if not isinstance(r, dict) or r.get("isSidechain") or r.get("isMeta") or r.get("type") not in ("user", "assistant"):
+            continue
+        contenido = (r.get("message") or {}).get("content")
+        if r["type"] == "user":
+            abre = isinstance(contenido, str) or (isinstance(contenido, list) and any(
+                isinstance(b, dict) and b.get("type") != "tool_result" for b in contenido))
+            if abre:
+                textos, usos, abierto = [], [], True
+        elif isinstance(contenido, list):
+            for b in contenido:
+                if not isinstance(b, dict):
+                    continue
+                if b.get("type") == "tool_use":
+                    usos.append(str(b.get("name", "?")))
+                elif b.get("type") == "text" and str(b.get("text", "")).strip():
+                    textos.append(b["text"])
+    return textos, usos, abierto
+
+
+def ultimo_turno(archivo: Path) -> tuple[list[str], list[str]]:
+    """(textos del asistente, herramientas usadas) desde el último mensaje que abrió turno. Mira primero la
+    cola del transcript; si ahí no empieza el turno, lo lee entero."""
+    tamano = archivo.stat().st_size
+    with open(archivo, "rb") as f:
+        f.seek(max(0, tamano - COLA_TURNO))
+        textos, usos, abierto = _turno_en(f.read())
+        if not abierto and tamano > COLA_TURNO:
+            f.seek(0)
+            textos, usos, _ = _turno_en(f.read())
+    return textos, usos
 
 
 def texto_resultado(contenido) -> str:

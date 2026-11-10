@@ -191,14 +191,49 @@ def _guardar(lista: list[dict]) -> None:
     TRABAJADORES.write_text(json.dumps(lista[-50:], ensure_ascii=False, indent=1), encoding="utf-8")
 
 
+PIE_PRIORIDAD = """--- Prioridad (de Ío) ---
+- Primero, lo que puedes hacer sin el usuario: código, pruebas, documentación y mediciones sin coste.
+- No pongas en el camino crítico firmas, mensajes a otras personas ni tareas manuales del usuario. Busca la ruta
+  que no dependa de eso, o déjalo todo preparado para que solo falte un sí.
+- Si una decisión tiene una recomendación ya escrita, avanza con ella como interina y anótalo como supuesto.
+- Puertas (push, gasto, producción, servidores, datos reales, envíos): no las cruces. Deja listos el comando y el presupuesto.
+- No escribas listas de «Usuario: …». Lo que quede va en tres grupos: lo que sigue una sesión, puertas y bloqueos externos."""
+
 PLANTILLA_CONTRATO = """{tarea}
 
 --- Contrato del encargo (de Ío) ---
-- No toques nada que no pida la tarea. No hagas commits ni `git push` ni envíes nada fuera.
+- No toques nada que no pida la tarea. Commits locales solo si la tarea lo pide; nunca `git push` ni envíes nada fuera.
 - Comprueba lo que hagas (ejecuta las pruebas si las hay).
 - Al terminar, escribe en el archivo {ruta} (créalo) lo siguiente: primero, un resumen de 5 líneas como mucho, en español llano
-  y sin código, apto para leerse en voz alta (qué hiciste y si funcionó); después, una lista de lo que queda pendiente y de lo que falló.
-- Tu última respuesta repite ese resumen."""
+  y sin código, apto para leerse en voz alta (qué hiciste y si funcionó); después, tres listas con estos títulos:
+  `## Hecho` (con lo que falló), `## Puertas` (qué necesita un sí del usuario, con el comando preparado) y
+  `## Bloqueos externos` (de quién depende, qué alternativa hay y qué queda preparado).
+- Tu última respuesta repite ese resumen.
+
+""" + PIE_PRIORIDAD
+
+VIGILANCIA = RUNTIME / "vigilancia"  # CLAVE.pid: quién espera a esa sesión; CLAVE.fin: ya se avisó de que terminó
+
+
+def marcar_vigilancia(clave: str, fin: bool = False) -> None:
+    """Anota que este proceso vigila la sesión o el trabajador `clave`, o que ya dio su aviso de fin.
+    Lo lee el hook de cierre de turno. Nunca falla."""
+    try:
+        VIGILANCIA.mkdir(parents=True, exist_ok=True)
+        (VIGILANCIA / f"{clave}.fin" if fin else VIGILANCIA / f"{clave}.pid").write_text(str(os.getpid()), encoding="utf-8")
+    except OSError:
+        pass
+
+
+def vigilada(clave: str) -> bool:
+    """Alguien la espera ahora mismo, o ya se avisó de su fin."""
+    if (VIGILANCIA / f"{clave}.fin").exists():
+        return True
+    try:
+        os.kill(int((VIGILANCIA / f"{clave}.pid").read_text(encoding="utf-8")), 0)
+        return True
+    except (OSError, ValueError):
+        return False
 
 
 def _archivo_resultado(nombre: str) -> Path:
@@ -276,6 +311,8 @@ def lista_trabajadores() -> None:
         if t.get("tipo") == "bg":
             a = vivos.get(t["nombre"], {})
             estado, sesion, resultado = a.get("status", "desconocido"), a.get("sessionId", ""), ""
+        elif t.get("tipo") == "plan":
+            estado, sesion, resultado = "sesión en modo plan", t.get("session_id", ""), ""
         else:
             (estado, resultado), sesion = _estado_p(t), t.get("session_id", "")
         if not resultado and t.get("contrato"):
@@ -344,6 +381,7 @@ def esperar(nombre: str, maximo_min: float | None = None) -> int:
     """Bloquea hasta que el trabajador termina y entonces imprime, de una vez, su estado y el resumen del
     informe: pensado para un Monitor de Ío. Si el Monitor caduca y se rearma, vuelve a esperar sin más."""
     t = _buscar_trabajador(nombre)
+    marcar_vigilancia(t["nombre"])
     inicio = time.monotonic()
     ultima_agentes = -ESPERA_AGENTES
     sin_actividad = 0
@@ -375,6 +413,8 @@ def esperar(nombre: str, maximo_min: float | None = None) -> int:
     if t.get("contrato"):
         lineas.append(f"Informe completo: {corta(str(_archivo_resultado(t['nombre'])))}")
     print("\n".join(lineas), flush=True)
+    if estado != "sigue trabajando":
+        marcar_vigilancia(t["nombre"], fin=True)
     return 0 if estado in ("terminado", "sigue trabajando") else 1
 
 

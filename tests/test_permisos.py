@@ -257,6 +257,7 @@ class AsistenteEstadoTest(unittest.TestCase):
         with mock.patch.object(asistente, "_buscar_trabajador", lambda n: t), \
                 mock.patch.object(asistente, "agentes", lambda todas=False: [vivo]), \
                 mock.patch.object(asistente, "ESPERA_AGENTES", 0), mock.patch.object(asistente, "ESPERA_SONDEO", 0), \
+                mock.patch.object(asistente, "marcar_vigilancia", lambda *a, **k: None), \
                 redirect_stdout(b):
             asistente.esperar("x")
         self.assertIn("blocked sin informe", b.getvalue())
