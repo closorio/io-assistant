@@ -6,6 +6,7 @@ import sys
 import tempfile
 import unittest
 import unittest.mock
+import urllib.parse
 from dataclasses import asdict
 from datetime import date, datetime
 from pathlib import Path
@@ -223,6 +224,55 @@ class Ejecuciones(unittest.TestCase):
             r = pm.chk_ejecuciones(self.tenant(), pm.CONFIG_DEFECTO, {}, "wf1")
         self.assertNotEqual(r.estado, "rojo")
         self.assertNotIn("sin créditos", r.valor)
+
+
+class FalsosPositivos(unittest.TestCase):
+    """Lo que no es un fallo no sube el semáforo: silencio sin tráfico, traspasos a humano, clave local de scripts."""
+
+    def ejecuciones_viejas(self, horas, **tcfg):
+        from datetime import timedelta, timezone
+        ini = datetime.now(timezone.utc) - timedelta(hours=horas)
+        ej = {"id": "1", "status": "success", "startedAt": ini.isoformat().replace("+00:00", "Z"),
+              "stoppedAt": (ini + timedelta(seconds=1)).isoformat().replace("+00:00", "Z")}
+        def falsa(url, cab=None, timeout=6, metodo="GET", max_bytes=0):
+            if "status=error" in url:
+                return pm.Resp(200, b'{"data": []}')
+            if "executions?workflowId" in url:
+                return pm.Resp(200, json.dumps({"data": [ej]}).encode())
+            return pm.Resp(200, json.dumps({"data": {"resultData": {"runData": {}}}}).encode())
+        t = pm.Tenant("buscasa", "buscasa", Path("/nada"), tcfg, env={"N8N_BASE_URL": "https://n8n.test"})
+        with unittest.mock.patch.object(pm, "peticion", falsa):
+            return pm.chk_ejecuciones(t, pm.CONFIG_DEFECTO, {}, "wf1")
+
+    def test_silencio_sin_trafico_no_es_ambar(self):
+        r = self.ejecuciones_viejas(119)
+        self.assertEqual(r.estado, "verde", r.detalle)
+        self.assertIn("119 h", r.detalle)
+
+    def test_silencio_con_alerta_sigue_siendo_ambar(self):
+        self.assertEqual(self.ejecuciones_viejas(119, silencio_alerta=True).estado, "ambar")
+
+    def test_chatwoot_ignora_traspasos_a_humano(self):
+        import time
+        viejo = time.time() - 10 * 3600
+        conv = [{"labels": ["requiere_humano"], "last_activity_at": viejo} for _ in range(25)]
+        def falsa(url, cab=None, timeout=6, metodo="GET", max_bytes=0):
+            if url.endswith("/profile"):
+                return pm.Resp(200, b"{}")
+            return pm.Resp(200, json.dumps({"data": {"meta": {"unassigned_count": 25}, "payload": conv}}).encode())
+        t = pm.Tenant("vindam", "vindam", Path("/nada"), {}, env={"CW_URL": "https://cw.test", "CW_API_KEY_ADMIN": "x"})
+        with unittest.mock.patch.object(pm, "peticion", falsa):
+            r = pm.chk_chatwoot(t, pm.CONFIG_DEFECTO)[0]
+        self.assertEqual(r.estado, "verde", r.detalle)
+        self.assertIn("25 con requiere_humano", r.detalle)
+        conv.append({"labels": [], "last_activity_at": viejo})
+        with unittest.mock.patch.object(pm, "peticion", falsa):
+            self.assertEqual(pm.chk_chatwoot(t, pm.CONFIG_DEFECTO)[0].estado, "ambar")
+
+    def test_clave_local_rechazada_es_ambar(self):
+        t = pm.Tenant("loyal-services", "loyal", Path("/nada"), {}, env={"OPENAI_API_KEY": "sk-x"})
+        with unittest.mock.patch.object(pm, "peticion", lambda *a, **k: pm.Resp(401, b"{}")):
+            self.assertEqual(pm.chk_openai(t, pm.CONFIG_DEFECTO)[0].estado, "ambar")
 
 
 class SaldoOpenAI(unittest.TestCase):
@@ -521,3 +571,220 @@ class Correo(unittest.TestCase):
         self.assertEqual(ImapFalso.selecciones, [True])  # readonly=True
         self.assertEqual([c["categoria"] for c in correos], ["alerta", "cliente"])  # alertas primero
         self.assertNotIn("clave-aplicacion-xx", json.dumps([asdict(r) for r in res]) + json.dumps(correos))
+
+
+class RespuestasFallo(unittest.TestCase):
+    """Fallos silenciosos: la ejecución consta como «success», pero el bot contestó con la frase de emergencia."""
+
+    ES = "Perdón, ¿me lo repites?"
+    EN = "Sorry, could you repeat that?"
+
+    def setUp(self):
+        import time
+        self.ahora = time.time()
+        self.urls = []
+        self.metodos = []
+
+    def msg(self, id_, conv, horas=1, tipo=1, privado=False, contenido=None, inbox=1):
+        return {"id": id_, "conversation_id": conv, "message_type": tipo, "private": privado, "inbox_id": inbox,
+                "content": self.ES if contenido is None else contenido, "created_at": int(self.ahora - horas * 3600)}
+
+    def tenant(self, nombre="buscasa", carpeta="/nada", **env):
+        env = env or {"CW_URL": "https://cw.test", "CW_API_KEY_ADMIN": "clave-secreta-cw"}
+        return pm.Tenant(nombre, nombre, Path(carpeta), {}, env=env)
+
+    def correr(self, paginas=None, conversaciones=None, t=None):
+        """paginas: {frase: [página, ...]}, y una página puede ser un Resp ya hecho (fallo de lectura)."""
+        paginas = paginas or {}
+        conversaciones = conversaciones or {}
+
+        def falsa(url, cab=None, timeout=6, metodo="GET", max_bytes=0):
+            self.urls.append(url)
+            self.metodos.append(metodo)
+            ruta = urllib.parse.urlsplit(url)
+            if ruta.path.endswith("/search/messages"):
+                q = urllib.parse.parse_qs(ruta.query)
+                lista = paginas.get(q["q"][0], [])
+                num = int(q.get("page", ["1"])[0])
+                pagina = lista[num - 1] if num <= len(lista) else []
+                if isinstance(pagina, pm.Resp):
+                    return pagina
+                return pm.Resp(200, json.dumps({"payload": {"messages": pagina}}).encode())
+            conv = conversaciones.get(int(ruta.path.rsplit("/", 1)[1]), {"labels": [], "meta": {"sender": {"name": "Ana", "identifier": None}}})
+            return conv if isinstance(conv, pm.Resp) else pm.Resp(200, json.dumps(conv).encode())
+        with unittest.mock.patch.object(pm, "peticion", falsa):
+            return pm.chk_respuestas_fallo(t or self.tenant(), pm.CONFIG_DEFECTO)[0]
+
+    def test_nombre_legible_registrado(self):
+        self.assertEqual(pm.NOMBRE_CHECK["respuestas_fallo"], "respuestas de emergencia")
+
+    def test_cliente_sin_frase_fiable_es_na_y_no_consulta(self):
+        r = self.correr(t=self.tenant("loyal-services"))
+        self.assertEqual((r.check, r.ambito, r.estado), ("respuestas_fallo", "loyal-services", "na"))
+        self.assertEqual(self.urls, [])
+
+    def test_loyal_no_tiene_frase_porque_su_repregunta_es_legitima(self):
+        self.assertNotIn("loyal-services", pm.FRASES_FALLO)
+
+    def test_dame_un_momento_no_cuenta_porque_tambien_es_derivacion_normal(self):
+        self.assertNotIn("Dame un momento", [f for c in pm.FRASES_FALLO.values() for f in c["frases"]])
+
+    def test_sin_credencial_es_na_y_no_consulta(self):
+        r = self.correr(t=self.tenant("eurotalent", CW_URL="https://cw.test", CW_API_KEY_ADMIN=""))
+        self.assertEqual(r.estado, "na")
+        self.assertIn("credencial", r.valor)
+        self.assertEqual(self.urls, [])
+
+    def test_cero_es_verde_y_avisa_de_la_cobertura_parcial(self):
+        r = self.correr()
+        self.assertEqual(r.estado, "verde")
+        self.assertIn("cobertura parcial", r.valor)
+        self.assertIn("inmueble", r.detalle)  # en buscasa, el punto ciego concreto
+
+    def test_una_conversacion_es_ambar_aunque_tenga_varios_mensajes(self):
+        r = self.correr({self.ES: [[self.msg(1, 10), self.msg(2, 10)]]})
+        self.assertEqual(r.estado, "ambar")
+        self.assertTrue(r.valor.startswith("2 en 1 conversación en 24 h"), r.valor)
+        self.assertEqual(r.detalle.count("24 h"), 1, r.detalle)
+        self.assertIn("cobertura parcial", r.valor)
+
+    def test_dos_conversaciones_es_rojo(self):
+        r = self.correr({self.ES: [[self.msg(1, 10), self.msg(2, 11)]]})
+        self.assertEqual(r.estado, "rojo")
+        self.assertTrue(r.valor.startswith("2 en 2 conversaciones"), r.valor)
+
+    def test_cuenta_las_frases_de_todos_los_idiomas_sin_duplicar(self):
+        en = self.msg(2, 11, contenido=self.EN)
+        r = self.correr({self.ES: [[self.msg(1, 10)]], self.EN: [[en, en]]})
+        self.assertEqual(r.estado, "rojo")
+        self.assertTrue(r.valor.startswith("2 en 2 conversaciones"), r.valor)
+
+    def test_solo_salientes_publicos_recientes_y_con_la_frase(self):
+        r = self.correr({self.ES: [[self.msg(1, 10, tipo=0), self.msg(2, 11, privado=True), self.msg(3, 12, contenido="otra cosa"), self.msg(4, 13, horas=25)]]})
+        self.assertEqual(r.estado, "verde", r.valor)
+
+    def test_excluye_bandeja_de_prueba_sin_pedir_la_conversacion(self):
+        with tempfile.TemporaryDirectory() as d:
+            ruta = Path(d) / "channels/chatcore whatsapp/config"
+            ruta.mkdir(parents=True)
+            (ruta / "tenant_config.json").write_text(json.dumps({"transport": {"chatwoot": {"inboxes_prueba": {"qa": 2}}}}), encoding="utf-8")
+            r = self.correr({self.ES: [[self.msg(1, 10, inbox=2)]]}, t=self.tenant(carpeta=d))
+        self.assertEqual(r.estado, "verde", r.valor)
+        self.assertIn("1 de prueba", r.detalle)
+        self.assertFalse([u for u in self.urls if "/conversations/" in u])
+
+    def test_excluye_etiqueta_de_prueba_y_contacto_sintetico(self):
+        convs = {10: {"labels": ["prueba"], "meta": {"sender": {}}},
+                 11: {"labels": [], "meta": {"sender": {"identifier": "audit_123", "name": "x"}}},
+                 12: {"labels": [], "meta": {"sender": {"identifier": None, "name": "QA Simulación"}}}}
+        r = self.correr({self.ES: [[self.msg(1, 10), self.msg(2, 11), self.msg(3, 12)]]}, convs)
+        self.assertEqual(r.estado, "verde", r.valor)
+        self.assertIn("3 de prueba", r.detalle)
+
+    def test_nombre_que_empieza_por_qa_sin_ser_prueba_cuenta(self):
+        convs = {10: {"labels": [], "meta": {"sender": {"identifier": None, "name": "Qasim"}}}}
+        self.assertEqual(self.correr({self.ES: [[self.msg(1, 10)]]}, convs).estado, "ambar")
+
+    def test_conversacion_que_no_se_puede_verificar_cuenta_y_se_dice(self):
+        r = self.correr({self.ES: [[self.msg(1, 10)]]}, {10: pm.Resp(500)})
+        self.assertEqual(r.estado, "ambar")
+        self.assertIn("1 sin verificar", r.detalle)
+
+    def test_lectura_fallida_es_error_no_verde(self):
+        for resp in (pm.Resp(500), pm.Resp(401), pm.Resp(0, error="timeout"), pm.Resp(200, b"<html>"), pm.Resp(200, b'{"payload": []}'), pm.Resp(200, b'{"payload": {"messages": {}}}')):
+            with self.subTest(resp=resp):
+                self.assertEqual(self.correr({self.ES: [resp]}).estado, "error")
+
+    def test_mensaje_sin_fecha_valida_es_error_no_verde(self):
+        malo = {**self.msg(1, 10), "created_at": "ayer"}
+        self.assertEqual(self.correr({self.ES: [[malo]]}).estado, "error")
+
+    def test_fallo_en_una_pagina_posterior_es_error_y_conserva_la_cifra(self):
+        r = self.correr({self.ES: [[self.msg(1, 10)], pm.Resp(500)]})
+        self.assertEqual(r.estado, "error")
+        self.assertIn("al menos 1", r.valor)
+
+    def test_solo_get_a_search_messages_con_la_frase_codificada(self):
+        self.correr()
+        self.assertEqual(set(self.metodos), {"GET"})
+        self.assertIn("https://cw.test/api/v1/accounts/1/search/messages?q=Perd%C3%B3n%2C%20%C2%BFme%20lo%20repites%3F", self.urls[0])
+        self.assertEqual(len(self.urls), 2)  # una por frase de buscasa
+
+    def test_deja_de_paginar_al_salir_de_la_ventana(self):
+        self.correr({self.ES: [[self.msg(1, 10), self.msg(2, 11, horas=30)], [self.msg(3, 12)]]})
+        self.assertEqual(len([u for u in self.urls if "q=Perd" in u]), 1)
+
+    def test_tope_de_paginas_avisa_de_que_es_un_minimo(self):
+        paginas = [[self.msg(n * 100 + i, 10) for i in range(15)] for n in range(pm.MAX_PAGINAS_FALLO + 2)]
+        r = self.correr({self.ES: paginas})
+        self.assertEqual(len([u for u in self.urls if "q=Perd" in u]), pm.MAX_PAGINAS_FALLO)
+        self.assertTrue(r.valor.startswith("al menos "), r.valor)
+        self.assertEqual(r.estado, "ambar")
+
+    def test_tope_de_conversaciones_cuenta_el_resto_sin_verificar(self):
+        n = pm.MAX_CONV_FALLO + 3
+        r = self.correr({self.ES: [[self.msg(i, 1000 + i) for i in range(n)]]})
+        self.assertEqual(len([u for u in self.urls if "/conversations/" in u]), pm.MAX_CONV_FALLO)
+        self.assertEqual(r.estado, "rojo")
+        self.assertTrue(r.valor.startswith(f"{n} en {n} conversaciones"), r.valor)
+        self.assertIn("3 sin verificar", r.detalle)
+
+    def test_tiempo_agotado_es_error(self):
+        relojes = iter([0, pm.TIEMPO_MAX_FALLO_S + 1])
+        with unittest.mock.patch.object(pm.time, "monotonic", lambda: next(relojes, pm.TIEMPO_MAX_FALLO_S + 1)):
+            r = self.correr({self.ES: [[self.msg(1, 10)]]})
+        self.assertEqual(r.estado, "error")
+        self.assertEqual(self.urls, [])
+
+    def test_no_saca_contenido_ni_contactos_ni_la_clave(self):
+        contenido = self.ES + " Ana +573001112233"
+        convs = {10: {"labels": [], "meta": {"sender": {"name": "Ana Pérez", "identifier": "+573001112233"}}}}
+        r = self.correr({self.ES: [[self.msg(1, 10, contenido=contenido)]]}, convs)
+        salida = json.dumps(asdict(r), ensure_ascii=False)
+        self.assertEqual(r.estado, "ambar")
+        for prohibido in ("Ana", "573001112233", "clave-secreta-cw"):
+            self.assertNotIn(prohibido, salida)
+
+    def raiz(self, d):
+        carpeta = Path(d) / "loyal-services"
+        (carpeta / "channels/chatcore whatsapp/config").mkdir(parents=True)
+        ruta = carpeta / ".env"
+        ruta.write_text("N8N_BASE_URL=https://x-n8n.test\n", encoding="utf-8")
+        ruta.chmod(0o600)
+        (carpeta / "channels/chatcore whatsapp/config/tenant_config.json").write_text('{"observability": {}}', encoding="utf-8")
+        c = json.loads(json.dumps(pm.CONFIG_DEFECTO))
+        c["raiz_tenants"] = d
+        c["tenants"] = {"loyal-services": {"voz": "loyal"}}
+        return c
+
+    def test_entra_en_el_bloque_tenants(self):
+        with tempfile.TemporaryDirectory() as d, unittest.mock.patch.object(pm, "peticion", lambda *a, **k: pm.Resp(200, b"{}")):
+            parte = pm.ejecutar(self.raiz(d), {"tenants"}, None, {}, 0)
+        self.assertEqual([(r.ambito, r.estado) for r in parte["resultados"] if r.check == "respuestas_fallo"], [("loyal-services", "na")])
+
+    def test_no_entra_en_otros_bloques(self):
+        with tempfile.TemporaryDirectory() as d, unittest.mock.patch.object(pm, "peticion", lambda *a, **k: pm.Resp(200, b"{}")):
+            parte = pm.ejecutar(self.raiz(d), {"supabase"}, None, {}, 0)
+        self.assertEqual([r for r in parte["resultados"] if r.check == "respuestas_fallo"], [])
+
+    def test_columna_en_la_tabla_del_informe(self):
+        res = [Resultado("respuestas_fallo", "buscasa", "ambar", "1 en 1 conversación", "d")]
+        parte = {"resultados": res, "tenants": {"buscasa": "buscasa"}, "fecha": "2026-11-03", "hora": "08:00", "semaforo": "ambar", "resumen_voz": "x",
+                 "pendientes": [], "trabajadores": [], "correos": [], "ruta_md": Path("/x.md")}
+        lineas = pm.a_markdown(parte).split("\n")
+        self.assertIn("| respuestas de emergencia |", next(ln for ln in lineas if ln.startswith("| tenant |")))
+        self.assertIn("⚠️", next(ln for ln in lineas if ln.startswith("| buscasa |")))
+
+    def test_tablero_crea_tarjeta_con_anomalia_y_no_con_na(self):
+        import tablero
+        parte = {"compacto": {"fecha": "2026-11-03"}, "tenants": {"buscasa": "buscasa", "loyal-services": "loyal"}, "resultados": [
+            asdict(Resultado("respuestas_fallo", "buscasa", "rojo", "3 en 2 conversaciones; cobertura parcial", "d")),
+            asdict(Resultado("respuestas_fallo", "loyal-services", "na", "sin frase de fallo identificable", "d")),
+        ]}
+        plan = tablero.planificar(parte, [])
+        escrituras = plan["cambios"]
+        self.assertEqual([e["id"] for e in escrituras], ["buscasa--respuestas_fallo"])
+        tarjeta = escrituras[0]["data"]
+        self.assertEqual((tarjeta["titulo"], tarjeta["nivel"], tarjeta["cliente"], tarjeta["columna"]), ("respuestas de emergencia", "rojo", "buscasa", "nuevos"))
+        self.assertEqual(tarjeta["detalle"], ["3 en 2 conversaciones; cobertura parcial"])
+        self.assertEqual(plan["sin_comprobar"], ["loyal: respuestas de emergencia: sin frase de fallo identificable"])

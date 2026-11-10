@@ -127,10 +127,11 @@ class Oido(unittest.TestCase):
         self.o.pendiente, self.o.pendiente_huella = [], None
         self.o.pendiente_desde = self.o.pendiente_hasta = 0.0
         self.o.cerrojo_parrafo = oido.threading.Lock()
-        self.callado, self.publicado = [], []
+        self.o.mic_abierto = False
+        self.callado, self.publicado, self.sonado = [], [], []
         self.parches = [mock.patch.object(oido.Oido, "callar_a_io", staticmethod(lambda m: self.callado.append(m))),
                         mock.patch.object(oido, "publicar", lambda r: self.publicado.append(r)),
-                        mock.patch.object(oido, "sonar", lambda *a, **k: None),
+                        mock.patch.object(oido, "sonar", lambda cfg, nombre, *a, **k: self.sonado.append(nombre)),
                         mock.patch.object(oido, "log", lambda m: None)]
         for p in self.parches:
             p.start()
@@ -258,6 +259,80 @@ class Oido(unittest.TestCase):
                 mock.patch.object(self.o, "_soltar_frase", lambda *a: None):
             self.o.trocear([np.zeros(oido.BLOQUE, np.float32)] * 40, mock.Mock(return_value=0.9), mic=True)
         self.assertEqual((comprobaciones, self.callado), ([], []))
+
+    # --- tonos de estado: saber sin mirar si el micrófono está abierto ---
+
+    def esperar_tonos(self, plazo: float = 1.0) -> None:
+        """Los tonos de estado suenan en un hilo propio; espera a que terminen los que haya."""
+        for hilo in oido.threading.enumerate():
+            if hilo is not oido.threading.current_thread() and hilo.name.startswith("tono"):
+                hilo.join(plazo)
+
+    def test_abrir_el_microfono_suena_agudo_y_cerrarlo_grave(self):
+        self.o.hablando = False
+        self.o.avisar_estado(True)
+        self.o.avisar_estado(True)  # ya estaba abierto: no se repite
+        self.esperar_tonos()
+        self.assertEqual(self.sonado, ["oido_activo"])
+        self.o.avisar_estado(False)
+        self.esperar_tonos()
+        self.assertEqual(self.sonado, ["oido_activo", "oido_parado"])
+
+    def test_tonos_de_estado_callan_con_silencio_y_con_aviso_estado_false(self):
+        self.o.hablando = False
+        self.o.cfg["silencio"] = True
+        self.o.avisar_estado(True)
+        self.o.cfg["silencio"] = False
+        self.o.cfg["escucha"]["aviso_estado"] = False
+        self.o.avisar_estado(False)
+        self.esperar_tonos()
+        self.assertEqual((self.sonado, self.o.mic_abierto), ([], False))
+
+    def test_tono_de_estado_espera_a_que_io_calle(self):
+        self.o.hablando = True
+        with mock.patch.object(oido, "ESPERA_VOZ", 2):
+            self.o.avisar_estado(True)
+            oido.time.sleep(0.25)
+            self.assertEqual(self.sonado, [])  # Ío habla: el tono espera
+            self.o.hablando = False
+            self.esperar_tonos()
+        self.assertEqual(self.sonado, ["oido_activo"])
+
+    def test_capturar_avisa_solo_del_microfono_y_no_si_falla(self):
+        self.o.hablando = False
+        bloque = bytes(oido.BLOQUE * 2)
+
+        def popen(*a, **k):
+            lecturas = iter([bloque, bloque, b""])  # dos bloques y pw-record muere
+            return mock.Mock(stdout=mock.Mock(read=lambda n: next(lecturas)), poll=lambda: 1)
+
+        for que, esperado in (("micrófono", ["oido_activo"]), ("monitor del equipo", [])):
+            self.sonado.clear()
+            self.o.mic_abierto = False
+            with mock.patch.object(oido.subprocess, "Popen", popen), mock.patch.object(oido, "log", lambda m: None):
+                with self.assertRaises(OSError):
+                    list(self.o.capturar(que, lambda: ["pw-record"], lambda: False, mock.Mock()))
+            self.esperar_tonos()
+            self.assertEqual(self.sonado, esperado, que)  # al fallar no suena «parado»: ya suena «no te oigo»
+
+    def test_capturar_avisa_al_cerrar_por_pausa(self):
+        self.o.hablando = False
+        bloque = bytes(oido.BLOQUE * 2)
+        cerrado = [False]
+
+        def leer(n):
+            cerrado[0] = True  # tras el primer bloque, llega la pausa
+            return bloque
+
+        popen = lambda *a, **k: mock.Mock(stdout=mock.Mock(read=leer), poll=lambda: None)  # noqa: E731
+        with mock.patch.object(oido.subprocess, "Popen", popen), mock.patch.object(oido, "log", lambda m: None), \
+                mock.patch.object(oido.time, "sleep", lambda s: oido.parar.set()):  # la pausa dura un ciclo y se apaga
+            try:
+                list(self.o.capturar("micrófono", lambda: ["pw-record"], lambda: cerrado[0], mock.Mock()))
+            finally:
+                oido.parar.clear()
+        self.esperar_tonos()
+        self.assertEqual(self.sonado, ["oido_activo", "oido_parado"])
 
 
 if __name__ == "__main__":

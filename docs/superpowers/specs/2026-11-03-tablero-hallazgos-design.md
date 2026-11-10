@@ -1,5 +1,7 @@
 # Tablero de hallazgos del parte: diseño
 
+> **2026-11-09:** el almacenamiento y la interfaz de este documento (página web y `ArtifactData`) están sustituidos por un archivo local y una pestaña del mod io-cabina: [2026-11-09-tablero-local-design.md](2026-11-09-tablero-local-design.md). El modelo de la tarjeta y las reglas de transición siguen vigentes.
+
 Fecha: 2026-11-03. Estado: pendiente de revisión del usuario.
 
 ## Objetivo

@@ -79,10 +79,13 @@ CONFIG_DEFECTO: dict = {
     "config": "channels/chatcore whatsapp/config/tenant_config.json",
     "cw_account": 1,
     "silencio_horas": {"laborable": 12, "finde": 48},  # «finde» se aplica sábado, domingo y lunes por la mañana
-    "umbrales": {"latencia_ms": 1500, "errores_ambar": 1, "errores_rojo": 4, "tls_ambar": 21, "tls_rojo": 7,
+    # Conversaciones de Chatwoot con estas etiquetas son traspasos a humano esperados: no cuentan como «sin asignar».
+    "cw_etiquetas_ignorar": ["requiere_humano"],
+    # Un workflow sin tráfico no es un fallo: el silencio solo sube a ámbar en los tenants con «silencio_alerta»: true.
+    "umbrales": {"latencia_ms": 4000, "errores_ambar": 1, "errores_rojo": 4, "tls_ambar": 21, "tls_rojo": 7,
                  "cw_sin_asignar_h": 4, "meta_token_ambar_d": 14, "meta_token_rojo_d": 3,
                  "disco_ambar": 80, "disco_rojo": 90, "ram_libre_min": 10,
-                 "sonda_ms": 20000, "sonda_timeout_s": 40},
+                 "sonda_ms": 20000, "sonda_timeout_s": 40, "fallo_conv_rojo": 2},
     "tenants": {
         "buscasa": {"voz": "buscasa", "supabase_tablas": ["propiedades"],
                     "workflows_extra": {"web": "5mdlzf3COOxEQDAw"},
@@ -114,6 +117,7 @@ BLOQUES = ("tenants", "supabase", "meta", "tls", "tester", "openai", "vps", "pen
 NOMBRE_CHECK = {
     "n8n": "n8n", "wf_activo": "workflow", "ejecuciones": "ejecuciones", "chatwoot": "Chatwoot",
     "supabase": "Supabase", "meta_numero": "número de WhatsApp", "meta_token": "token de Meta", "tls": "certificado",
+    "respuestas_fallo": "respuestas de emergencia",
     "tester": "chat de pruebas", "sonda": "sonda de conversación", "openai_clave": "clave de OpenAI", "openai_saldo": "saldo de OpenAI",
     "env_permisos": "permisos del .env",
     "vps": "servidor", "trabajadores": "trabajadores", "correo": "correo técnico", "config": "configuración",
@@ -131,6 +135,22 @@ PATRON_RELLENO = re.compile(r"Perdón, ¿me lo repites\?|Sorry, could you repeat
 PATRON_DUDOSO = re.compile(r"^\s*Elige una opción|Un momentito, ya te leemos|One moment, we're reading", re.I)  # menú o lock: ámbar
 PROCESO_REAL_S = 2  # una ejecución que dura menos no llegó al modelo (eventos salientes, dedupe, handoff)
 MUESTRA_SILENCIOSAS = 3  # cuántas ejecuciones «success» recientes con proceso real se inspeccionan por tenant
+# Frase literal que el workflow de cada tenant envía cuando el agente devuelve vacío o falla. «ciego» es lo que la frase no ve:
+# la cobertura es siempre parcial. Sin entrada, no hay frase fiable: loyal repregunta «¿Me cuentas un poco más…?» también en
+# conversaciones normales. «Dame un momento» (vindam) no entra porque también cierra las derivaciones normales.
+FRASES_FALLO = {
+    "buscasa": {"frases": ["Perdón, ¿me lo repites?", "Sorry, could you repeat that?"],
+                "ciego": "con un inmueble activo o tras aceptar el aviso de privacidad, el fallo sale como una oferta normal"},
+    "marlovet": {"frases": ["Perdón, ¿me lo repites?"], "ciego": "si ya hay derivación, el fallo sale como el anuncio de traspaso"},
+    "vindam": {"frases": ["Perdón, ¿me lo repites?", "Sorry, could you repeat that?"],
+               "ciego": "si ya hay derivación, el fallo sale como «Dame un momento», igual que una derivación normal"},
+    "eurotalent": {"frases": ["Perdón, ¿me lo repites?", "se me cruzaron los cables"], "ciego": "durante un traspaso a humano no sale ninguna de las frases"},
+}
+VENTANA_FALLO_H = 24
+MAX_PAGINAS_FALLO = 3  # por frase; Chatwoot devuelve 15 mensajes por página, del más reciente al más antiguo
+MAX_CONV_FALLO = 10  # conversaciones que se abren para ver si son de prueba; las demás cuentan como reales
+TIEMPO_MAX_FALLO_S = 20  # por cliente
+PREFIJOS_PRUEBA = ("audit_", "web_demo_", "qa_", "smoke_", "probe_")  # contactos sintéticos, como chatcore-factory/scripts/chatwoot_pruebas.py
 
 
 # --- modelo ---------------------------------------------------------------------------------
@@ -500,7 +520,8 @@ def chk_ejecuciones(t: Tenant, cfg: dict, cab: dict, wid: str) -> Resultado:
         estado = max(estado, "ambar", key=lambda s: -ORDEN[s])
     elif silencio_h > limite:
         partes.append(f"última ejecución hace {silencio_h:.0f} h")
-        estado = max(estado, "ambar", key=lambda s: -ORDEN[s])
+        if t.cfg.get("silencio_alerta", cfg.get("silencio_alerta", False)):
+            estado = max(estado, "ambar", key=lambda s: -ORDEN[s])
     else:
         partes.append(f"última hace {silencio_h:.1f} h")
     detalle = "; ".join(partes) + f" (umbral de silencio {limite} h; un «success» con onError=continue puede ocultar fallos)"
@@ -525,13 +546,111 @@ def chk_chatwoot(t: Tenant, cfg: dict) -> list[Resultado]:
     if not isinstance(datos, dict):
         return [Resultado("chatwoot", t.nombre, "ambar", "conversaciones no consultadas", f"profile OK; conversaciones: {rc.error or rc.status}", r.ms)]
     ahora = time.time()
-    viejas = [c for c in datos.get("payload", []) if ahora - float(c.get("last_activity_at") or c.get("created_at") or ahora) > cfg["umbrales"]["cw_sin_asignar_h"] * 3600]
-    total = (datos.get("meta") or {}).get("unassigned_count", len(datos.get("payload", [])))
+    ignorar = set(t.cfg.get("cw_etiquetas_ignorar", cfg.get("cw_etiquetas_ignorar", [])))
+    payload = datos.get("payload", [])
+    traspasos = [c for c in payload if ignorar & set(c.get("labels") or [])]
+    viejas = [c for c in payload if c not in traspasos
+              and ahora - float(c.get("last_activity_at") or c.get("created_at") or ahora) > cfg["umbrales"]["cw_sin_asignar_h"] * 3600]
+    total = (datos.get("meta") or {}).get("unassigned_count", len(payload))
+    nota = f"; {len(traspasos)} con {', '.join(sorted(ignorar))} (no cuentan)" if traspasos else ""
     if viejas:
         return [Resultado("chatwoot", t.nombre, "ambar", f"{len(viejas)} sin asignar más de {cfg['umbrales']['cw_sin_asignar_h']} h",
-                          f"{total} conversaciones abiertas sin asignar, {len(viejas)} con más de {cfg['umbrales']['cw_sin_asignar_h']} h sin actividad", r.ms)]
+                          f"{total} conversaciones abiertas sin asignar, {len(viejas)} con más de {cfg['umbrales']['cw_sin_asignar_h']} h sin actividad{nota}", r.ms)]
     return [Resultado("chatwoot", t.nombre, latencia(r.ms, cfg["umbrales"]["latencia_ms"]), f"{r.ms} ms; {total} sin asignar",
-                      f"profile OK en {r.ms} ms; {total} abiertas sin asignar", r.ms)]
+                      f"profile OK en {r.ms} ms; {total} abiertas sin asignar{nota}", r.ms)]
+
+
+def estado_fallo(tenant: str, hay_chatwoot: bool, mensajes: list[dict], minimo: bool = False, rojo: int = 2) -> tuple[str, str]:
+    """Estado y texto corto a partir de los mensajes ya filtrados: nunca verde sin haber podido mirar."""
+    conf = FRASES_FALLO.get(tenant)
+    if not conf:
+        return "na", "sin frase de fallo identificable: no comprobado"
+    if not hay_chatwoot:
+        return "na", "sin credencial de Chatwoot: no comprobado"
+    if not mensajes:
+        return "verde", f"0 en {VENTANA_FALLO_H} h; cobertura parcial"
+    conversaciones = len({m["conversation_id"] for m in mensajes})
+    texto = f"{'al menos ' if minimo else ''}{len(mensajes)} en {conversaciones} {'conversación' if conversaciones == 1 else 'conversaciones'} en {VENTANA_FALLO_H} h; cobertura parcial"
+    return "rojo" if conversaciones >= rojo else "ambar", texto
+
+
+def _prueba_chatwoot(t: Tenant, cfg: dict) -> tuple[set, str]:
+    """Bandejas y etiqueta de prueba declaradas en tenant_config.json; si no se puede leer, no se excluye nada."""
+    try:
+        datos = json.loads((t.carpeta / t.cfg.get("config", cfg["config"])).read_text(encoding="utf-8"))
+        chat = datos["transport"]["chatwoot"]
+    except (OSError, ValueError, KeyError, TypeError):
+        return set(), "prueba"
+    bandejas = chat.get("inboxes_prueba") or {}
+    return set(bandejas.values() if isinstance(bandejas, dict) else bandejas), chat.get("label_prueba") or "prueba"
+
+
+def _conversacion_de_prueba(conv: dict, etiqueta: str) -> bool:
+    contacto = (conv.get("meta") or {}).get("sender") or {}
+    return (etiqueta in (conv.get("labels") or [])
+            or str(contacto.get("identifier") or "").lower().startswith(PREFIJOS_PRUEBA)
+            or re.match(r"QA\s", str(contacto.get("name") or "")) is not None)
+
+
+def chk_respuestas_fallo(t: Tenant, cfg: dict) -> list[Resultado]:
+    """Cuenta las respuestas de emergencia del agente en Chatwoot: si falla el modelo, la ejecución de n8n consta como «success»."""
+    url, clave = t["CW_URL"].rstrip("/"), t["CW_API_KEY_ADMIN"]
+    estado, valor = estado_fallo(t.nombre, bool(url and clave), [])
+    if estado == "na":
+        return [Resultado("respuestas_fallo", t.nombre, "na", valor, valor)]
+    conf = FRASES_FALLO[t.nombre]
+    cab = {"api_access_token": clave, "Accept": "application/json"}
+    base = f"{url}/api/v1/accounts/{t.cfg.get('cw_account', cfg['cw_account'])}"
+    bandejas, etiqueta = _prueba_chatwoot(t, cfg)
+    desde = time.time() - VENTANA_FALLO_H * 3600
+    limite = time.monotonic() + TIEMPO_MAX_FALLO_S
+    ms, minimo = 0, False
+    hallados: dict = {}
+
+    def fallo(motivo: str) -> list[Resultado]:
+        corto = f"lectura incompleta; al menos {len(hallados)} por revisar" if hallados else "no consultadas"
+        return [Resultado("respuestas_fallo", t.nombre, "error", corto, f"búsqueda en Chatwoot: {motivo}", ms)]
+
+    for frase in conf["frases"]:
+        for pagina in range(1, MAX_PAGINAS_FALLO + 1):
+            if time.monotonic() > limite:
+                return fallo(f"más de {TIEMPO_MAX_FALLO_S} s")
+            r = peticion(f"{base}/search/messages?q={urllib.parse.quote(frase, safe='')}" + (f"&page={pagina}" if pagina > 1 else ""), cab, timeout=8)
+            ms += r.ms
+            if r.status != 200:
+                return fallo(str(r.error or r.status))
+            datos = r.json()
+            carga = datos.get("payload") if isinstance(datos, dict) else None
+            mensajes = carga.get("messages") if isinstance(carga, dict) else None
+            if not isinstance(mensajes, list) or not all(isinstance(m, dict) and isinstance(m.get("created_at"), (int, float)) for m in mensajes):
+                return fallo("formato inesperado")
+            if not mensajes:
+                break
+            for m in mensajes:
+                if (m["created_at"] >= desde and m.get("message_type") == 1 and not m.get("private")
+                        and frase.lower() in str(m.get("content") or "").lower() and m.get("conversation_id") is not None):
+                    hallados[m.get("id")] = m
+            if min(m["created_at"] for m in mensajes) < desde:
+                break
+        else:
+            minimo = True  # tope de páginas sin salir de la ventana: la cifra es un mínimo
+
+    reales = [m for m in hallados.values() if m.get("inbox_id") not in bandejas]
+    excluir, sin_verificar = set(), 0
+    for i, conv_id in enumerate(dict.fromkeys(m["conversation_id"] for m in reales)):
+        rc = peticion(f"{base}/conversations/{conv_id}", cab, timeout=8) if i < MAX_CONV_FALLO and time.monotonic() <= limite else None
+        conv = rc.json() if rc is not None and rc.status == 200 else None
+        if not isinstance(conv, dict):
+            sin_verificar += 1  # sin poder ver si es de prueba, cuenta: mejor una alerta de más que un fallo oculto
+        elif _conversacion_de_prueba(conv, etiqueta):
+            excluir.add(conv_id)
+        ms += rc.ms if rc is not None else 0
+    reales = [m for m in reales if m["conversation_id"] not in excluir]
+    pruebas = len(hallados) - len(reales)
+    estado, valor = estado_fallo(t.nombre, True, reales, minimo, int(cfg["umbrales"].get("fallo_conv_rojo", 2)))
+    notas = ([f"{pruebas} de prueba sin contar"] if pruebas else []) + ([f"{sin_verificar} sin verificar (cuentan)"] if sin_verificar else [])
+    detalle = "; ".join([valor, *notas, f"no se ve: {conf['ciego']}"])
+    return [Resultado("respuestas_fallo", t.nombre, estado, valor, detalle, ms)]
 
 
 def chk_supabase(t: Tenant, cfg: dict) -> list[Resultado]:
@@ -729,10 +848,12 @@ def chk_openai(t: Tenant, cfg: dict) -> list[Resultado]:
     nota = "clave local del tenant (scripts y juez); la de los bots vive dentro de n8n"
     if r.status == 200:
         return [Resultado("openai_clave", t.nombre, "verde", "clave válida", f"clave válida; {nota}", r.ms)]
+    # Ámbar, no rojo: es la clave local de scripts y juez, no la de los bots. Un bot sin modelo lo detectan
+    # «ejecuciones» (relleno por créditos) y la sonda de conversación.
     if r.status == 401:
-        return [Resultado("openai_clave", t.nombre, "rojo", "clave rechazada", f"OpenAI responde 401; {nota}", r.ms)]
+        return [Resultado("openai_clave", t.nombre, "ambar", "clave local rechazada", f"OpenAI responde 401; {nota}", r.ms)]
     if r.status == 429:
-        return [Resultado("openai_clave", t.nombre, "rojo", "sin cuota", f"OpenAI responde 429 (cuota o límite); {nota}", r.ms)]
+        return [Resultado("openai_clave", t.nombre, "ambar", "clave local sin cuota", f"OpenAI responde 429 (cuota o límite); {nota}", r.ms)]
     return [Resultado("openai_clave", t.nombre, "error", "no consultada", f"OpenAI: {r.error or r.status}", r.ms)]
 
 
@@ -1170,6 +1291,7 @@ def ejecutar(cfg: dict, solo: set[str], solo_tenant: str | None, secretos: dict,
         if "tenants" in solo:
             tareas.append((f"n8n {t.nombre}", lambda t=t: con_limite(t.host_vps, chk_n8n, t, cfg)))
             tareas.append((f"chatwoot {t.nombre}", lambda t=t: con_limite(t.host_vps, chk_chatwoot, t, cfg)))
+            tareas.append((f"respuestas_fallo {t.nombre}", lambda t=t: con_limite(t.host_vps, chk_respuestas_fallo, t, cfg)))
         if "supabase" in solo:
             tareas.append((f"supabase {t.nombre}", lambda t=t: chk_supabase(t, cfg)))
         if "meta" in solo:
@@ -1319,7 +1441,7 @@ def a_markdown(parte: dict) -> str:
     res: list[Resultado] = parte["resultados"]
     voces = parte["tenants"]
     L = [f"# Parte matinal — {parte['fecha']} {parte['hora']}", "", f"**Semáforo: {parte['semaforo'].upper()}** — {parte['resumen_voz']}", ""]
-    columnas = ["n8n", "wf_activo", "ejecuciones", "chatwoot", "supabase", "meta_numero", "meta_token", "tls", "tester", "sonda", "openai_clave"]
+    columnas = ["n8n", "wf_activo", "ejecuciones", "respuestas_fallo", "chatwoot", "supabase", "meta_numero", "meta_token", "tls", "tester", "sonda", "openai_clave"]
     L.append("| tenant | " + " | ".join(NOMBRE_CHECK[c] for c in columnas) + " |")
     L.append("|---|" + "---|" * len(columnas))
     for nombre, voz in voces.items():
@@ -1350,9 +1472,11 @@ def a_markdown(parte: dict) -> str:
     L += [f"- {ICONO[r.estado]} {voces.get(r.ambito, r.ambito)} · {NOMBRE_CHECK.get(r.check, r.check)}: {r.detalle or r.valor}" for r in res]
     L += ["", "## Advertencias de método", "",
           "- Un «success» de n8n con `onError: continue` puede ocultar fallos de nodos; las ejecuciones con error se cuentan por su estado.",
+          "- Las respuestas de emergencia se cuentan por la frase literal que envía el workflow: un cero no descarta los fallos que salen con otro texto, "
+          "y el canal web que no pasa por Chatwoot no se ve.",
           "- La clave de OpenAI comprobada es la local del tenant (scripts, juez); la de los bots vive como credencial dentro de n8n. "
           "La señal real de cuota son los errores 429/insufficient_quota en las ejecuciones.",
-          "- Festivos no se contemplan en el umbral de silencio; sábado, domingo y lunes usan el umbral de fin de semana.",
+          "- El silencio de un workflow solo es ámbar en tenants con «silencio_alerta»; festivos no se contemplan; sábado, domingo y lunes usan el umbral de fin de semana.",
           "- Nunca se envía nada: solo GET/HEAD, lectura por SSH e IMAP en modo solo lectura. Webhooks de producción, QVET y la bandeja QA no se tocan.",
           "- La sonda de conversación (si está activa) es el único POST: una sesión `web_demo_` al canal web de pruebas del tenant; "
           "no pasa por WhatsApp ni por Chatwoot y sus claves de Redis caducan solas."]

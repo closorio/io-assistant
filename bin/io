@@ -76,7 +76,11 @@ def main(args: list[str]) -> int:
         extra = ["--session-id", sesion, ARRANQUE + frase_arranque()]
     IO_JSON.write_text(json.dumps({"session_id": sesion, "pid": os.getpid(), "inicio": time.time(),
                                    "ultima": sesion}), encoding="utf-8")
-    orden = [claude, "--agent", "narrador:io", "--permission-mode", "auto", "--name", "Ío", *extra]
+    orden = [claude, "--agent", "narrador:io", "--permission-mode", "auto", "--name", "Ío"]
+    cabina = Path.home() / ".local/share/narrador/mods/io-cabina"
+    if (cabina / ".claude-plugin/plugin.json").exists():
+        orden += ["--plugin-dir", str(cabina)]  # panel de la cabina (mod)
+    orden += extra
     vigilante = arrancar_vigilante()
     try:
         return subprocess.run(orden, cwd=CARPETA, env=dict(os.environ, NARRADOR_IO="1")).returncode

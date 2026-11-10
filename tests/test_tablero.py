@@ -9,7 +9,9 @@ import pytest
 
 RAIZ = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(RAIZ / "scripts"))
-from tablero import agrupar, decidir, id_tarjeta, leer_tarjetas, main, ocultar, planificar, ultimo_parte  # noqa: E402
+import tablero  # noqa: E402
+import tablero_archivo as almacen  # noqa: E402
+from tablero import agrupar, decidir, id_tarjeta, leer_tarjetas, main, mover, ocultar, planificar, ultimo_parte  # noqa: E402
 
 HOY = "2026-11-03"
 AYER = "2026-11-02"
@@ -170,6 +172,12 @@ def test_verde_resuelve_abierta(columna):
     assert c["historial"][-1] == {"fecha": HOY, "de": columna, "a": "resueltos", "origen": "parte"}
 
 
+@pytest.mark.parametrize("columna", ["nuevos", "en_curso", "dejados"])
+def test_verde_no_resuelve_check_de_cierre_manual(columna):
+    t = {**tarjeta(columna), "check": "respuestas_fallo"}
+    assert decidir(grupo(res("verde", check="respuestas_fallo")), t, parcial=False, hoy=HOY) is None
+
+
 def test_verde_en_resueltos_no_cambia():
     assert decidir(grupo(res("verde")), tarjeta("resueltos"), parcial=False, hoy=HOY) is None
 
@@ -280,11 +288,11 @@ def parte_mini(*resultados, fecha=HOY, parcial=False):
 
 
 def doc(id_="cliente-a--chatwoot", **campos):
-    return {"id": id_, "version": 7, "cliente": "cliente-a", "titulo": "Chatwoot", "fiabilidad": "comprobado", "primera_vez": AYER, **tarjeta(**campos)}
+    return {"id": id_, "cliente": "cliente-a", "titulo": "Chatwoot", "fiabilidad": "comprobado", "primera_vez": AYER, **tarjeta(**campos)}
 
 
 def escrituras(plan):
-    return [e for lote in plan["lotes"] for e in lote]
+    return plan["cambios"]
 
 
 def columnas(plan):
@@ -299,7 +307,7 @@ def test_semilla_real_da_7_y_5():
 
 def test_semilla_real_agrupa_los_dos_env_de_un_cliente():
     plan = planificar(parte_real(), [], modo="semilla")
-    env = next(e for e in escrituras(plan) if e["doc_id"] == "cliente-b-services--env_permisos")
+    env = next(e for e in escrituras(plan) if e["id"] == "cliente-b-services--env_permisos")
     assert len(env["data"]["detalle"]) == 2
 
 
@@ -355,53 +363,56 @@ def test_sin_comprobar_incluye_error():
 
 def test_cliente_usa_nombre_de_voz():
     plan = planificar(parte_mini(res(ambito="cliente-b-services"), res(ambito="10.0.0.1", check="vps")), [])
-    clientes = {e["doc_id"]: e["data"]["cliente"] for e in escrituras(plan)}
+    clientes = {e["id"]: e["data"]["cliente"] for e in escrituras(plan)}
     assert clientes == {"cliente-b-services--chatwoot": "cliente-b", "10.0.0.1--vps": "global"}
 
 
-def test_update_lleva_version_y_set_no():
+def test_cambio_distingue_crear_de_actualizar():
     plan = planificar(parte_mini(res("rojo"), res(check="tls")), [doc()])
-    por_id = {e["doc_id"]: e for e in escrituras(plan)}
-    assert por_id["cliente-a--chatwoot"]["op"] == "update"
-    assert por_id["cliente-a--chatwoot"]["if_version"] == 7
-    assert por_id["cliente-a--tls"]["op"] == "set"
-    assert "if_version" not in por_id["cliente-a--tls"]
-    assert por_id["cliente-a--tls"]["collection"] == "tarjetas"
+    por_id = {e["id"]: e for e in escrituras(plan)}
+    assert por_id["cliente-a--chatwoot"]["crear"] is False
+    assert por_id["cliente-a--tls"]["crear"] is True
+    assert set(por_id["cliente-a--tls"]) == {"id", "crear", "data"}
 
 
-def test_update_no_manda_campos_internos():
+def test_plan_ya_no_habla_de_la_pagina():
+    plan = planificar(parte_mini(res("rojo")), [doc()])
+    assert "lotes" not in plan
+    assert "if_version" not in json.dumps(plan) and "collection" not in json.dumps(plan)
+
+
+def test_cambio_no_manda_campos_internos():
     data = escrituras(planificar(parte_mini(res("rojo")), [doc()]))[0]["data"]
     assert "id" not in data and "version" not in data
 
 
 def test_sin_cambios_lotes_vacios():
     t = doc(columna="nuevos", ultima=HOY)
-    assert planificar(parte_mini(res("ambar")), [t])["lotes"] == []
+    assert planificar(parte_mini(res("ambar")), [t])["cambios"] == []
 
 
 def test_parte_antiguo_no_mueve():
     plan = planificar(parte_mini(res("verde"), fecha=AYER), [doc(ultima=HOY)])
-    assert plan["lotes"] == []
+    assert plan["cambios"] == []
     assert any("antiguo" in a for a in plan["avisos"])
 
 
 def test_grupo_ausente_no_cambia():
-    assert planificar(parte_mini(res(check="tls", estado="verde")), [doc(columna="nuevos")])["lotes"] == []
+    assert planificar(parte_mini(res(check="tls", estado="verde")), [doc(columna="nuevos")])["cambios"] == []
 
 
 def test_ignorar_no_recrea_tarjeta_invalida():
-    assert planificar(parte_mini(res("rojo")), [], ignorar={"cliente-a--chatwoot"})["lotes"] == []
+    assert planificar(parte_mini(res("rojo")), [], ignorar={"cliente-a--chatwoot"})["cambios"] == []
 
 
 def test_parcial_no_crea_desde_planificar():
-    assert planificar(parte_mini(res("rojo"), parcial=True), [])["lotes"] == []
+    assert planificar(parte_mini(res("rojo"), parcial=True), [])["cambios"] == []
 
 
-def test_mas_de_50_escrituras_en_lotes():
+def test_muchos_cambios_van_en_una_sola_lista():
     resultados = [res(check=f"c{i}") for i in range(120)]
     plan = planificar(parte_mini(*resultados), [])
-    assert [len(lote) for lote in plan["lotes"]] == [50, 50, 20]
-    assert len({e["doc_id"] for e in escrituras(plan)}) == 120
+    assert len({e["id"] for e in escrituras(plan)}) == 120
 
 
 def test_plan_devuelve_fecha():
@@ -415,36 +426,30 @@ def guardar(carpeta, nombre, contenido):
 
 
 def sin_internos(d):
-    return {k: v for k, v in d.items() if k not in ("id", "version")}
+    return {k: v for k, v in d.items() if k != "id"}
 
 
-def test_leer_tarjetas_toma_id_del_nombre_y_version_del_listado(tmp_path):
+def test_leer_tarjetas_toma_el_id_del_nombre(tmp_path):
     guardar(tmp_path, "cliente-a--chatwoot", sin_internos(doc()))
-    tarjetas, invalidas, avisos = leer_tarjetas(tmp_path, {"cliente-a--chatwoot": 9})
-    assert [(t["id"], t["version"]) for t in tarjetas] == [("cliente-a--chatwoot", 9)]
+    tarjetas, invalidas, avisos = leer_tarjetas(tmp_path)
+    assert [t["id"] for t in tarjetas] == ["cliente-a--chatwoot"]
+    assert "version" not in tarjetas[0]
     assert invalidas == set() and avisos == []
 
 
 def test_tarjeta_invalida_se_ignora_con_aviso(tmp_path):
-    versiones = {"buena": 1, "columna-rara": 1, "rota": 1}
     guardar(tmp_path, "buena", sin_internos(doc()))
     guardar(tmp_path, "columna-rara", sin_internos(doc(columna="x")))
     guardar(tmp_path, "rota", "{no es json")
-    guardar(tmp_path, "sin-version", sin_internos(doc()))
-    tarjetas, invalidas, avisos = leer_tarjetas(tmp_path, versiones)
+    tarjetas, invalidas, avisos = leer_tarjetas(tmp_path)
     assert [t["id"] for t in tarjetas] == ["buena"]
-    assert invalidas == {"columna-rara", "rota", "sin-version"}
-    assert len(avisos) == 3
-
-
-def test_version_listada_sin_archivo_es_invalida(tmp_path):
-    tarjetas, invalidas, avisos = leer_tarjetas(tmp_path, {"perdida": 3})
-    assert tarjetas == [] and invalidas == {"perdida"} and len(avisos) == 1
+    assert invalidas == {"columna-rara", "rota"}
+    assert len(avisos) == 2
 
 
 def test_leer_carpeta_inexistente_lanza(tmp_path):
     with pytest.raises(FileNotFoundError):
-        leer_tarjetas(tmp_path / "no", {})
+        leer_tarjetas(tmp_path / "no")
 
 
 # --- fiabilidad del plan: nunca un verde falso ---
@@ -462,64 +467,420 @@ def test_parte_antiguo_hace_el_plan_no_fiable():
     assert planificar(parte_mini(fecha=AYER), [doc(ultima=HOY)])["fiable"] is False
 
 
-def test_main_sin_versiones_no_da_verde_fiable(tmp_path, capsys):
-    guardar(tmp_path, "cliente-a--meta_numero", sin_internos(doc(columna="nuevos", nivel="rojo")))
-    assert main(["plan", "--tarjetas", str(tmp_path), "--versiones", "{}", "--parte", str(FIXTURE)]) == 0
-    assert json.loads(capsys.readouterr().out)["fiable"] is False
+# --- orden narrador tablero: simulación (plan y semilla) ---
+
+@pytest.fixture
+def archivo(tmp_path, monkeypatch):
+    ruta = tmp_path / "datos" / "tablero.json"
+    monkeypatch.setattr(tablero, "ARCHIVO", ruta)
+    return ruta
 
 
-# --- orden narrador tablero ---
-
-def test_main_imprime_json_valido(tmp_path, capsys):
-    assert main(["semilla", "--tarjetas", str(tmp_path), "--versiones", "{}", "--parte", str(FIXTURE)]) == 0
-    assert len([e for lote in json.loads(capsys.readouterr().out)["lotes"] for e in lote]) == 12
+def crear_tablero(ruta, *docs, **extra):
+    estado = {**almacen.vacio(), "tarjetas": {d["id"]: sin_internos(d) for d in docs}, **extra}
+    return almacen.guardar(ruta, estado)
 
 
-def test_main_plan_no_usa_semilla(tmp_path, capsys):
-    assert main(["plan", "--tarjetas", str(tmp_path), "--versiones", "{}", "--parte", str(FIXTURE)]) == 0
-    datos = json.loads(capsys.readouterr().out)
-    assert {e["data"]["columna"] for lote in datos["lotes"] for e in lote} == {"nuevos"}
+def salida(capsys):
+    return json.loads(capsys.readouterr().out)
 
 
-def test_main_avisa_de_tarjeta_invalida_y_no_la_recrea(tmp_path, capsys):
-    guardar(tmp_path, "cliente-a--meta_numero", "{rota")
-    assert main(["plan", "--tarjetas", str(tmp_path), "--versiones", "{}", "--parte", str(FIXTURE)]) == 0
-    datos = json.loads(capsys.readouterr().out)
-    assert "cliente-a--meta_numero" not in {e["doc_id"] for lote in datos["lotes"] for e in lote}
+def test_main_tarjeta_invalida_no_da_verde_fiable(archivo, capsys):
+    crear_tablero(archivo, doc("cliente-a--meta_numero", columna="x"))
+    assert main(["plan", "--parte", str(FIXTURE)]) == 0
+    assert salida(capsys)["fiable"] is False
+
+
+def test_main_semilla_imprime_json_valido(archivo, capsys):
+    assert main(["semilla", "--parte", str(FIXTURE)]) == 0
+    assert len(salida(capsys)["cambios"]) == 12
+    assert not archivo.exists()
+
+
+def test_main_plan_no_usa_semilla(archivo, capsys):
+    crear_tablero(archivo)
+    assert main(["plan", "--parte", str(FIXTURE)]) == 0
+    assert {e["data"]["columna"] for e in salida(capsys)["cambios"]} == {"nuevos"}
+
+
+def test_main_plan_no_escribe(archivo, capsys):
+    crear_tablero(archivo)
+    antes = archivo.read_text(encoding="utf-8")
+    assert main(["plan", "--parte", str(FIXTURE)]) == 0
+    assert archivo.read_text(encoding="utf-8") == antes
+
+
+def test_main_avisa_de_tarjeta_invalida_y_no_la_recrea(archivo, capsys):
+    crear_tablero(archivo, doc("cliente-a--meta_numero", columna="x"))
+    assert main(["plan", "--parte", str(FIXTURE)]) == 0
+    datos = salida(capsys)
+    assert "cliente-a--meta_numero" not in {e["id"] for e in datos["cambios"]}
     assert datos["avisos"]
 
 
-def test_main_sin_carpeta_sale_3(tmp_path):
-    assert main(["plan", "--tarjetas", str(tmp_path / "no"), "--versiones", "{}", "--parte", str(FIXTURE)]) == 3
+def test_main_plan_sin_archivo_sale_3(archivo):
+    assert main(["plan", "--parte", str(FIXTURE)]) == 3
 
 
-def test_main_versiones_ilegibles_sale_3(tmp_path):
-    assert main(["plan", "--tarjetas", str(tmp_path), "--versiones", "{", "--parte", str(FIXTURE)]) == 3
+def test_main_archivo_roto_sale_3_y_no_se_toca(archivo):
+    archivo.parent.mkdir(parents=True)
+    archivo.write_text("{roto", encoding="utf-8")
+    for orden in (["plan", "--parte", str(FIXTURE)], ["aplicar", "--parte", str(FIXTURE)], ["ver", "--json"],
+                  ["mover", "a--b", "en_curso", "--origen", "mod"], ["deshacer", "--origen", "mod"]):
+        assert main(orden) == 3
+    assert archivo.read_text(encoding="utf-8") == "{roto"
 
 
-def test_main_usa_las_versiones_del_listado(tmp_path, capsys):
-    guardar(tmp_path, "cliente-a--meta_numero", sin_internos(doc(columna="nuevos", nivel="ambar")))
-    versiones = json.dumps({"cliente-a--meta_numero": 4})
-    assert main(["plan", "--tarjetas", str(tmp_path), "--versiones", versiones, "--parte", str(FIXTURE)]) == 0
-    datos = json.loads(capsys.readouterr().out)
-    escritura = next(e for lote in datos["lotes"] for e in lote if e["doc_id"] == "cliente-a--meta_numero")
-    assert escritura["if_version"] == 4
-
-
-def test_main_parte_ilegible_sale_3(tmp_path):
+def test_main_parte_ilegible_sale_3(archivo, tmp_path):
+    crear_tablero(archivo)
     malo = tmp_path / "parte.json"
     malo.write_text("{", encoding="utf-8")
-    assert main(["plan", "--tarjetas", str(tmp_path), "--parte", str(malo), "--versiones", "{}"]) == 3
+    assert main(["plan", "--parte", str(malo)]) == 3
 
 
-def test_main_parte_sin_campos_sale_3(tmp_path):
+def test_main_parte_sin_campos_sale_3(archivo, tmp_path):
+    crear_tablero(archivo)
     malo = tmp_path / "parte.json"
     malo.write_text("{}", encoding="utf-8")
-    assert main(["plan", "--tarjetas", str(tmp_path), "--parte", str(malo), "--versiones", "{}"]) == 3
+    assert main(["plan", "--parte", str(malo)]) == 3
 
 
-def test_main_parte_inexistente_sale_3(tmp_path):
-    assert main(["plan", "--tarjetas", str(tmp_path), "--parte", str(tmp_path / "no.json"), "--versiones", "{}"]) == 3
+def test_main_parte_inexistente_sale_3(archivo, tmp_path):
+    crear_tablero(archivo)
+    assert main(["plan", "--parte", str(tmp_path / "no.json")]) == 3
+
+
+# --- mover: función pura ---
+
+def test_mover_apunta_origen_y_quita_la_marca():
+    c = mover(tarjeta("nuevos", marca="reabierta"), "en_curso", "mod", HOY)
+    assert c == {"columna": "en_curso", "marca": None, "historial": [{"fecha": HOY, "de": "nuevos", "a": "en_curso", "origen": "mod"}]}
+
+
+def test_mover_recorta_el_historial_a_20():
+    previos = [{"fecha": AYER, "de": "a", "a": "b", "origen": "pagina"}] * 20
+    c = mover(tarjeta("nuevos", historial=previos), "resueltos", "voz", HOY)
+    assert len(c["historial"]) == 20 and c["historial"][-1]["origen"] == "voz"
+
+
+@pytest.mark.parametrize("origen", ["parte", "pagina", "otro"])
+def test_mover_solo_admite_mod_o_voz(origen):
+    with pytest.raises(ValueError):
+        mover(tarjeta("nuevos"), "en_curso", origen, HOY)
+
+
+def test_mover_a_columna_desconocida_lanza():
+    with pytest.raises(ValueError):
+        mover(tarjeta("nuevos"), "papelera", "mod", HOY)
+
+
+# --- orden narrador tablero ver ---
+
+def test_ver_sin_archivo_da_tablero_vacio(archivo, capsys):
+    assert main(["ver", "--json"]) == 0
+    datos = salida(capsys)
+    assert datos["existe"] is False and datos["tarjetas"] == [] and datos["puede_deshacer"] is False
+    assert not archivo.exists()
+
+
+def test_ver_lista_las_tarjetas_con_id(archivo, capsys):
+    crear_tablero(archivo, doc("a--uno", columna="en_curso", nivel="rojo"), doc("a--dos", columna="dejados"), parte_fecha=AYER)
+    assert main(["ver", "--json"]) == 0
+    datos = salida(capsys)
+    assert datos["existe"] is True and datos["rev"] == 1 and datos["parte_fecha"] == AYER
+    assert {t["id"]: t["columna"] for t in datos["tarjetas"]} == {"a--uno": "en_curso", "a--dos": "dejados"}
+    assert datos["semaforo"] == "rojo"
+
+
+def test_ver_semaforo_ignora_dejados_y_resueltos(archivo, capsys):
+    crear_tablero(archivo, doc("a--uno", columna="dejados", nivel="rojo"), doc("a--dos", columna="resueltos", nivel="rojo"))
+    main(["ver", "--json"])
+    assert salida(capsys)["semaforo"] == "verde"
+
+
+def test_ver_avisa_de_tarjeta_invalida_sin_listarla(archivo, capsys):
+    crear_tablero(archivo, doc("a--uno"), doc("a--mala", nivel="ROJO"))
+    assert main(["ver", "--json"]) == 0
+    datos = salida(capsys)
+    assert [t["id"] for t in datos["tarjetas"]] == ["a--uno"]
+    assert any("a--mala" in a for a in datos["avisos"])
+
+
+def test_ver_sin_json_es_texto_legible(archivo, capsys):
+    crear_tablero(archivo, doc("a--uno", columna="en_curso"))
+    assert main(["ver"]) == 0
+    texto = capsys.readouterr().out
+    assert "en curso" in texto.lower() and "a--uno" in texto
+
+
+def test_ver_no_escribe(archivo):
+    crear_tablero(archivo, doc("a--uno"))
+    antes = archivo.read_text(encoding="utf-8")
+    main(["ver", "--json"])
+    assert archivo.read_text(encoding="utf-8") == antes
+
+
+# --- orden narrador tablero mover ---
+
+def guardada(ruta, id_):
+    return almacen.leer(ruta)["tarjetas"][id_]
+
+
+def test_main_mover_escribe_columna_e_historial(archivo, capsys):
+    crear_tablero(archivo, doc("a--uno", marca="reabierta"), doc("a--dos"))
+    assert main(["mover", "a--uno", "en_curso", "--origen", "mod", "--hoy", HOY]) == 0
+    t = guardada(archivo, "a--uno")
+    assert t["columna"] == "en_curso" and t["marca"] is None
+    assert t["historial"][-1] == {"fecha": HOY, "de": "nuevos", "a": "en_curso", "origen": "mod"}
+    assert guardada(archivo, "a--dos") == sin_internos(doc("a--dos"))
+    datos = salida(capsys)
+    assert datos["rev"] == 2 and datos["puede_deshacer"] is True
+    assert {t["id"]: t["columna"] for t in datos["tarjetas"]}["a--uno"] == "en_curso"
+
+
+def test_main_mover_no_toca_nivel_ni_detalle(archivo):
+    crear_tablero(archivo, doc("a--uno", nivel="rojo", detalle=("x", "y")))
+    main(["mover", "a--uno", "resueltos", "--origen", "voz", "--hoy", HOY])
+    t = guardada(archivo, "a--uno")
+    assert (t["nivel"], t["detalle"], t["ultima_vez"], t["fiabilidad"]) == ("rojo", ["x", "y"], AYER, "comprobado")
+
+
+def test_main_mover_id_desconocido_sale_1(archivo):
+    crear_tablero(archivo, doc("a--uno"))
+    assert main(["mover", "a--no", "en_curso", "--origen", "mod"]) == 1
+    assert almacen.leer(archivo)["rev"] == 1
+
+
+def test_main_mover_a_la_misma_columna_sale_1(archivo):
+    crear_tablero(archivo, doc("a--uno"))
+    assert main(["mover", "a--uno", "nuevos", "--origen", "mod"]) == 1
+    assert almacen.leer(archivo)["rev"] == 1
+
+
+def test_main_mover_desde_columna_que_ya_no_es_sale_4(archivo):
+    crear_tablero(archivo, doc("a--uno", columna="resueltos"))
+    assert main(["mover", "a--uno", "en_curso", "--origen", "mod", "--desde", "nuevos"]) == 4
+    assert guardada(archivo, "a--uno")["columna"] == "resueltos"
+
+
+def test_main_mover_desde_correcto_pasa(archivo):
+    crear_tablero(archivo, doc("a--uno"))
+    assert main(["mover", "a--uno", "en_curso", "--origen", "mod", "--desde", "nuevos"]) == 0
+
+
+def test_main_mover_sin_archivo_sale_3(archivo):
+    assert main(["mover", "a--uno", "en_curso", "--origen", "mod"]) == 3
+    assert not archivo.exists()
+
+
+@pytest.mark.parametrize("orden", [
+    ["mover", "a--uno", "papelera", "--origen", "mod"],
+    ["mover", "a--uno", "en_curso", "--origen", "parte"],
+    ["mover", "a--uno", "en_curso"],
+])
+def test_main_mover_con_argumentos_invalidos_no_escribe(archivo, orden):
+    crear_tablero(archivo, doc("a--uno"))
+    with pytest.raises(SystemExit):
+        main(orden)
+    assert almacen.leer(archivo)["rev"] == 1
+
+
+def test_main_mover_tarjeta_invalida_sale_1(archivo):
+    crear_tablero(archivo, doc("a--mala", nivel="ROJO"))
+    assert main(["mover", "a--mala", "en_curso", "--origen", "mod"]) == 1
+
+
+def test_main_cerrojo_ocupado_sale_5(archivo, monkeypatch):
+    crear_tablero(archivo, doc("a--uno"))
+    monkeypatch.setattr(almacen, "ESPERA", 0.1)
+    with almacen.con_cerrojo(archivo):
+        assert main(["mover", "a--uno", "en_curso", "--origen", "mod"]) == 5
+    assert guardada(archivo, "a--uno")["columna"] == "nuevos"
+
+
+# --- orden narrador tablero deshacer ---
+
+def test_main_deshacer_devuelve_columna_y_marca(archivo, capsys):
+    crear_tablero(archivo, doc("a--uno", marca="reabierta"))
+    main(["mover", "a--uno", "resueltos", "--origen", "mod", "--hoy", HOY])
+    capsys.readouterr()
+    assert main(["deshacer", "--origen", "voz", "--hoy", HOY]) == 0
+    t = guardada(archivo, "a--uno")
+    assert t["columna"] == "nuevos" and t["marca"] == "reabierta"
+    assert t["historial"][-1] == {"fecha": HOY, "de": "resueltos", "a": "nuevos", "origen": "voz"}
+    datos = salida(capsys)
+    assert datos["deshecho"] == {"id": "a--uno", "cliente": "cliente-a", "titulo": "Chatwoot", "de": "resueltos", "a": "nuevos"}
+    assert datos["puede_deshacer"] is False
+
+
+def test_main_deshacer_dos_veces_sale_1(archivo):
+    crear_tablero(archivo, doc("a--uno"))
+    main(["mover", "a--uno", "en_curso", "--origen", "mod"])
+    assert main(["deshacer", "--origen", "mod"]) == 0
+    assert main(["deshacer", "--origen", "mod"]) == 1
+
+
+def test_main_deshacer_sin_movimientos_sale_1(archivo):
+    crear_tablero(archivo, doc("a--uno"))
+    assert main(["deshacer", "--origen", "mod"]) == 1
+    assert almacen.leer(archivo)["rev"] == 1
+
+
+def test_main_deshacer_no_pisa_lo_que_movio_el_parte(archivo, capsys):
+    crear_tablero(archivo, doc("cliente-a--chatwoot"))
+    main(["mover", "cliente-a--chatwoot", "en_curso", "--origen", "mod", "--hoy", HOY])
+    parte = archivo.parent / "parte.json"
+    parte.write_text(json.dumps(parte_mini(res("verde"))), encoding="utf-8")
+    assert main(["aplicar", "--parte", str(parte)]) == 0
+    assert guardada(archivo, "cliente-a--chatwoot")["columna"] == "resueltos"
+    capsys.readouterr()
+    assert main(["ver", "--json"]) == 0
+    assert salida(capsys)["puede_deshacer"] is False
+    assert main(["deshacer", "--origen", "mod"]) == 1
+    assert guardada(archivo, "cliente-a--chatwoot")["columna"] == "resueltos"
+
+
+# --- orden narrador tablero aplicar ---
+
+def parte_en(ruta, *resultados, **opciones):
+    destino = ruta.parent / "parte.json"
+    destino.parent.mkdir(parents=True, exist_ok=True)
+    destino.write_text(json.dumps(parte_mini(*resultados, **opciones)), encoding="utf-8")
+    return str(destino)
+
+
+def test_aplicar_crea_actualiza_y_resuelve(archivo, capsys):
+    crear_tablero(archivo, doc("cliente-a--chatwoot"), doc("cliente-a--tls", columna="en_curso"))
+    parte = parte_en(archivo, res("verde"), res("rojo", check="tls", valor="caduca"), res("ambar", check="wf_activo"))
+    assert main(["aplicar", "--parte", parte]) == 0
+    tarjetas = almacen.leer(archivo)["tarjetas"]
+    assert tarjetas["cliente-a--chatwoot"]["columna"] == "resueltos" and tarjetas["cliente-a--chatwoot"]["marca"] == "automatica"
+    assert (tarjetas["cliente-a--tls"]["columna"], tarjetas["cliente-a--tls"]["nivel"], tarjetas["cliente-a--tls"]["detalle"]) == ("en_curso", "rojo", ["caduca"])
+    assert tarjetas["cliente-a--tls"]["titulo"] == "Chatwoot"  # los campos que no cambian se conservan
+    assert tarjetas["cliente-a--wf_activo"]["columna"] == "nuevos"
+    assert "id" not in tarjetas["cliente-a--wf_activo"]
+    datos = salida(capsys)
+    assert datos["aplicados"] == 3 and datos["fiable"] is True and datos["semaforo"] == "rojo"
+    assert "cambios" not in datos
+    assert almacen.leer(archivo)["parte_fecha"] == HOY
+
+
+def test_aplicar_es_idempotente(archivo, capsys):
+    crear_tablero(archivo)
+    parte = parte_en(archivo, res("rojo"))
+    main(["aplicar", "--parte", parte])
+    rev = almacen.leer(archivo)["rev"]
+    capsys.readouterr()
+    assert main(["aplicar", "--parte", parte]) == 0
+    assert salida(capsys)["aplicados"] == 0
+    assert almacen.leer(archivo)["rev"] == rev
+
+
+def test_aplicar_respeta_la_tarjeta_movida_por_el_usuario(archivo):
+    crear_tablero(archivo, doc("cliente-a--chatwoot"))
+    main(["mover", "cliente-a--chatwoot", "dejados", "--origen", "voz", "--hoy", HOY])
+    main(["aplicar", "--parte", parte_en(archivo, res("ambar"))])
+    assert guardada(archivo, "cliente-a--chatwoot")["columna"] == "dejados"
+
+
+def test_aplicar_no_cierra_check_de_cierre_manual(archivo):
+    crear_tablero(archivo, {**doc("cliente-a--respuestas_fallo"), "check": "respuestas_fallo"})
+    main(["aplicar", "--parte", parte_en(archivo, res("verde", check="respuestas_fallo"))])
+    assert guardada(archivo, "cliente-a--respuestas_fallo")["columna"] == "nuevos"
+
+
+def test_aplicar_sin_archivo_sale_3_y_no_lo_crea(archivo):
+    assert main(["aplicar", "--parte", parte_en(archivo, res("rojo"))]) == 3
+    assert not archivo.exists()
+
+
+def test_aplicar_crear_estrena_el_tablero(archivo):
+    assert main(["aplicar", "--crear", "--parte", parte_en(archivo, res("rojo"))]) == 0
+    assert list(almacen.leer(archivo)["tarjetas"]) == ["cliente-a--chatwoot"]
+
+
+def test_aplicar_fecha_distinta_no_escribe(archivo, capsys):
+    crear_tablero(archivo, doc("cliente-a--chatwoot"))
+    assert main(["aplicar", "--fecha", "2026-11-04", "--parte", parte_en(archivo, res("verde"))]) == 0
+    datos = salida(capsys)
+    assert datos["fiable"] is False and datos["aplicados"] == 0
+    assert almacen.leer(archivo)["rev"] == 1 and almacen.leer(archivo)["parte_fecha"] is None
+
+
+def test_aplicar_parcial_actualiza_detalle_sin_fijar_la_fecha_del_parte(archivo):
+    crear_tablero(archivo, doc("cliente-a--chatwoot"))
+    main(["aplicar", "--parte", parte_en(archivo, res("rojo", valor="nuevo"), parcial=True)])
+    estado = almacen.leer(archivo)
+    assert estado["tarjetas"]["cliente-a--chatwoot"]["detalle"] == ["nuevo"]
+    assert estado["tarjetas"]["cliente-a--chatwoot"]["nivel"] == "ambar"
+    assert estado["parte_fecha"] is None
+
+
+def test_aplicar_conserva_la_tarjeta_invalida_y_no_es_fiable(archivo, capsys):
+    mala = doc("cliente-a--chatwoot", nivel="ROJO")
+    crear_tablero(archivo, mala)
+    assert main(["aplicar", "--parte", parte_en(archivo, res("rojo"), res("ambar", check="tls"))]) == 0
+    assert salida(capsys)["fiable"] is False
+    tarjetas = almacen.leer(archivo)["tarjetas"]
+    assert tarjetas["cliente-a--chatwoot"] == sin_internos(mala)
+    assert "cliente-a--tls" in tarjetas
+
+
+def test_aplicar_no_mezcla_clientes(archivo):
+    crear_tablero(archivo)
+    main(["aplicar", "--parte", parte_en(archivo, res("rojo", ambito="cliente-a"), res("ambar", ambito="cliente-b-services"))])
+    tarjetas = almacen.leer(archivo)["tarjetas"]
+    assert tarjetas["cliente-a--chatwoot"]["cliente"] == "global"
+    assert tarjetas["cliente-b-services--chatwoot"]["cliente"] == "cliente-b"
+    assert tarjetas["cliente-a--chatwoot"]["nivel"] == "rojo" and tarjetas["cliente-b-services--chatwoot"]["nivel"] == "ambar"
+
+
+# --- orden narrador tablero importar (migración desde la página) ---
+
+def test_importar_crea_el_archivo_con_el_id_del_nombre(archivo, tmp_path, capsys):
+    movida = doc("cliente-a--meta_numero", columna="en_curso", historial=[{"fecha": AYER, "de": "nuevos", "a": "en_curso", "origen": "voz"}])
+    guardar(tmp_path, "cliente-a--chatwoot", sin_internos(doc()))
+    guardar(tmp_path, "cliente-a--meta_numero", sin_internos(movida))
+    assert main(["importar", str(tmp_path)]) == 0
+    estado = almacen.leer(archivo)
+    assert estado["tarjetas"] == {"cliente-a--chatwoot": sin_internos(doc()), "cliente-a--meta_numero": sin_internos(movida)}
+    assert estado["parte_fecha"] == AYER and estado["ultimo_movimiento"] is None
+    datos = salida(capsys)
+    assert datos["importadas"] == 2 and datos["columnas"] == {"nuevos": 1, "en_curso": 1}
+
+
+def test_importar_oculta_tokens_del_detalle(archivo, tmp_path):
+    guardar(tmp_path, "a--uno", sin_internos(doc("a--uno", detalle=("clave sk-abcdefghijklmnop123456",))))
+    assert main(["importar", str(tmp_path)]) == 0
+    assert "sk-abc" not in json.dumps(almacen.leer(archivo))
+
+
+def test_importar_se_niega_si_ya_hay_tablero(archivo, tmp_path):
+    crear_tablero(archivo, doc("a--uno"))
+    guardar(tmp_path, "a--dos", sin_internos(doc("a--dos")))
+    assert main(["importar", str(tmp_path)]) == 1
+    assert list(almacen.leer(archivo)["tarjetas"]) == ["a--uno"]
+
+
+def test_importar_con_un_documento_invalido_no_escribe_nada(archivo, tmp_path):
+    guardar(tmp_path, "a--uno", sin_internos(doc("a--uno")))
+    guardar(tmp_path, "a--mala", "{rota")
+    assert main(["importar", str(tmp_path)]) == 3
+    assert not archivo.exists()
+
+
+def test_importar_carpeta_vacia_o_inexistente_sale_3(archivo, tmp_path):
+    assert main(["importar", str(tmp_path)]) == 3
+    assert main(["importar", str(tmp_path / "no")]) == 3
+    assert not archivo.exists()
+
+
+def test_importar_no_toca_la_carpeta_de_origen(archivo, tmp_path):
+    guardar(tmp_path, "a--uno", sin_internos(doc("a--uno")))
+    antes = (tmp_path / "a--uno.json").read_text(encoding="utf-8")
+    main(["importar", str(tmp_path)])
+    assert sorted(p.name for p in tmp_path.iterdir() if p.is_file()) == ["a--uno.json"]
+    assert (tmp_path / "a--uno.json").read_text(encoding="utf-8") == antes
 
 
 def test_parte_por_defecto_es_el_ultimo_completo(tmp_path):
@@ -538,14 +899,25 @@ def test_sin_partes_por_defecto_lanza(tmp_path):
 SKILLS = RAIZ / "skills"
 
 
-@pytest.mark.parametrize("texto", ["[voz-equipo]", "if_version", "--versiones", "deshaz", "producción", "tarjetas"])
+def skill(nombre):
+    return (SKILLS / nombre / "SKILL.md").read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("texto", ["[voz-equipo]", "narrador tablero mover", "--origen voz", "narrador tablero deshacer", "narrador tablero ver",
+                                   "deshaz", "producción", "tarjetas", "respuestas de emergencia"])
 def test_skill_tablero_cubre_limites(texto):
-    assert texto in (SKILLS / "io-tablero" / "SKILL.md").read_text(encoding="utf-8")
+    assert texto in skill("io-tablero")
 
 
-@pytest.mark.parametrize("texto", ["narrador tablero plan", "--versiones", "resumen_voz", "fiable", "version_mismatch", "estimado"])
+@pytest.mark.parametrize("texto", ["narrador tablero aplicar", "--fecha", "resumen_voz", "fiable", "estimado"])
 def test_parte_matinal_usa_tablero(texto):
-    assert texto in (SKILLS / "io-parte-matinal" / "SKILL.md").read_text(encoding="utf-8")
+    assert texto in skill("io-parte-matinal")
+
+
+@pytest.mark.parametrize("nombre", ["io-tablero", "io-parte-matinal"])
+@pytest.mark.parametrize("texto", ["ArtifactData", "if_version", "--versiones", "version_mismatch"])
+def test_las_guias_ya_no_usan_la_pagina(nombre, texto):
+    assert texto not in skill(nombre)
 
 
 # --- revisión final: nunca un verde falso ---
@@ -559,15 +931,16 @@ def test_parte_parcial_no_es_fiable():
 def test_fecha_esperada_distinta_no_es_fiable():
     plan = planificar(parte_mini(res("verde"), fecha=AYER), [doc(columna="nuevos", ultima=AYER)], fecha_esperada=HOY)
     assert plan["fiable"] is False
-    assert plan["lotes"] == []
+    assert plan["cambios"] == []
 
 
 def test_fecha_esperada_igual_es_fiable():
     assert planificar(parte_mini(), [], fecha_esperada=HOY)["fiable"] is True
 
 
-def test_main_fecha_del_parte_distinta(tmp_path, capsys):
-    assert main(["plan", "--tarjetas", str(tmp_path), "--versiones", "{}", "--parte", str(FIXTURE), "--fecha", "2026-11-04"]) == 0
+def test_main_fecha_del_parte_distinta(archivo, capsys):
+    crear_tablero(archivo)
+    assert main(["plan", "--parte", str(FIXTURE), "--fecha", "2026-11-04"]) == 0
     assert json.loads(capsys.readouterr().out)["fiable"] is False
 
 
@@ -583,7 +956,7 @@ def test_main_fecha_del_parte_distinta(tmp_path, capsys):
 ])
 def test_documento_con_esquema_roto_es_invalido(tmp_path, cambio):
     guardar(tmp_path, "mala", {**sin_internos(doc()), **cambio})
-    tarjetas, invalidas, avisos = leer_tarjetas(tmp_path, {"mala": 1})
+    tarjetas, invalidas, avisos = leer_tarjetas(tmp_path)
     assert tarjetas == [] and invalidas == {"mala"} and len(avisos) == 1
 
 

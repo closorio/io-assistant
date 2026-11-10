@@ -53,6 +53,7 @@ CORTE = 8  # bloques con voz mientras Ío habla para cortarle (~250 ms)
 SIN_MENTOR = 120  # s sin latido de `narrador escuchar` antes de apagarse
 TRABAJANDO = 6  # s: si el transcript de Ío se escribió hace menos, está trabajando y la ventana sigue abierta
 AVISO_CADA = 20  # s mínimos entre dos tonos de «no te he oído decir Ío»
+ESPERA_VOZ = 4  # s máximos que un tono de estado (micrófono abierto o cerrado) espera a que Ío calle
 MARGEN_IO = 0.6  # s tras hablar Ío en los que lo del monitor aún puede ser su voz
 COLA_EQUIPO = 8  # frases del equipo esperando a Whisper; si hay más, se tira la más vieja
 CARPETA_IO = Path.home() / "Documentos"  # donde arranca bin/io
@@ -215,6 +216,7 @@ class Oido:
         self.cerrojo_huella = threading.Lock()  # la usan el transcriptor y el corte por voz, en hilos distintos
         self.en_voz = False  # estás hablando ahora mismo
         self.transcribiendo = False
+        self.mic_abierto = False  # para avisar con un tono solo cuando el micrófono cambia de estado
 
     # --- configuración y estado de la voz ---
 
@@ -277,6 +279,26 @@ class Oido:
         if self.esc.get("avisos_sonoros", True):
             sonar(self.cfg, "ventana_cerrada", (523, 392, 262))
 
+    def avisar_estado(self, abierto: bool) -> None:
+        """Una nota aguda al abrirse el micrófono y una grave al cerrarse: «te escucho» / «ya no te escucho», para
+        saberlo sin mirar la pantalla. Solo en los cambios (el rearme del Monitor no cierra el micrófono, así que no
+        suena), nunca con `narrador silencio`, y sin pisar la voz de Ío: espera a que calle, hasta ESPERA_VOZ s."""
+        if abierto == self.mic_abierto:
+            return
+        self.mic_abierto = abierto
+        if not self.esc.get("aviso_estado", True) or self.cfg.get("silencio"):
+            return
+        nombre, notas, duracion = ("oido_activo", (988,), 0.15) if abierto else ("oido_parado", (294,), 0.25)
+
+        def tocar():
+            limite = time.monotonic() + ESPERA_VOZ
+            while self.hablando and time.monotonic() < limite:
+                time.sleep(0.1)
+            sonar(self.cfg, nombre, notas, duracion)
+
+        # No daemon: al apagar el oído, el tono de «parado» debe llegar a sonar.
+        threading.Thread(target=tocar, name=f"tono-{nombre}").start()
+
     def soltar_parrafo(self, forzar: bool = False) -> None:
         """Entrega a Ío las frases juntas, como un párrafo, cuando llevas `agrupar` s sin decir nada más."""
         if not self.pendiente:
@@ -336,16 +358,23 @@ class Oido:
             proc = subprocess.Popen(orden() + ["-"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
             vad.reiniciar()
             log(f"{que} abierto")
+            primero = fallo = False
             try:
                 while not parar.is_set() and not cerrado():
                     datos = proc.stdout.read(BLOQUE * 2)
                     if len(datos) < BLOQUE * 2:
+                        fallo = True
                         raise OSError(f"pw-record terminó (rc={proc.poll()})")
+                    if not primero and que == "micrófono":
+                        primero = True
+                        self.avisar_estado(True)  # suena cuando hay audio de verdad, no al lanzar pw-record
                     yield np.frombuffer(datos, np.int16).astype(np.float32) / 32768
             finally:
                 proc.terminate()
                 proc.wait()
                 log(f"{que} cerrado")
+                if que == "micrófono" and not fallo:  # si falló, ya suena «no te oigo»
+                    self.avisar_estado(False)
 
     def _orden_mic(self) -> list:
         orden = ["pw-record", "--rate", str(TASA), "--channels", "1", "--format", "s16"]

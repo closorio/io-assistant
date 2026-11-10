@@ -55,6 +55,7 @@ CONFIG_DEFECTO = {
         "corte": 0.25,  # s de tu voz sobre la de Ío para cortarle (más = menos cortes falsos por eco)
         "silencio_fin": 0.8,  # s de silencio para dar una frase por terminada (más = te deja pensar entre frases)
         "aviso_descarte": True,  # un tono suave cuando descarta una frase por no oír su nombre
+        "aviso_estado": True,  # una nota aguda al abrirse el micrófono y una grave al cerrarse (pausa, parada)
         "modelo": "small",  # modelo de faster-whisper
         "interrumpir": True,  # hablar mientras Ío habla le corta, solo si la huella confirma que eres tú
         "microfono": None,  # entrada de pw-record (node.name); None = la de por defecto

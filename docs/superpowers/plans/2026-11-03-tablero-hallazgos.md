@@ -1,5 +1,7 @@
 # Tablero de hallazgos: plan de implementación
 
+> **2026-11-09:** el almacenamiento y la interfaz de este documento (página web y `ArtifactData`) están sustituidos por un archivo local y una pestaña del mod io-cabina: [2026-11-09-tablero-local-design.md](../specs/2026-11-09-tablero-local-design.md). El modelo de la tarjeta y las reglas de transición siguen vigentes.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Convertir los hallazgos del parte matinal en tarjetas persistentes de un Kanban que el usuario mueve por voz o en una página web.

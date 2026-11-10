@@ -17,17 +17,14 @@ El trabajo pesado lo hace un script determinista y de solo lectura: `narrador pa
 
 ## Cruzar con el tablero
 
-La URL está en tu nota `referencias/tablero-hallazgos.md`; las órdenes por voz, en la guía `tablero`.
+Las tarjetas viven en un archivo local de este equipo que también lee la pestaña «Tablero» de la cabina; las órdenes por voz, en la guía `tablero`.
 
-1. Crea una carpeta nueva y dentro `tarjetas`: `d=$(mktemp -d); mkdir "$d/tarjetas"` (una lectura vieja daría versiones viejas).
-2. `ArtifactData` `list` de `tarjetas` con `query: {"limit": 1000}` y `out_dir: "$d"`. El resultado lista cada documento con su versión; esos archivos no la incluyen.
-3. `narrador tablero plan --tarjetas "$d/tarjetas" --versiones '{"id": version, ...}' --fecha FECHA`, copiando las versiones de ese listado (si la colección está vacía, `'{}'`) y con `fecha` del JSON del parte.
-4. Si `lotes` trae algo, `ArtifactData` `batch` con cada lote, tal cual. Si falla con `version_mismatch`, el usuario movió algo: vuelve al paso 1.
-5. Locuta con la salida del plan, no con `resumen_voz`: `semaforo`, `voz.activas` (rojo primero; las de marca `reabierta` o `empeorada`, dilo), cuántas siguen dejadas de lado (`voz.dejadas`, sin detallarlas) y `sin_comprobar`. Lo de `fiabilidad: estimado` se dice como estimado, nunca como hecho.
+1. `narrador tablero aplicar --fecha FECHA`, con `fecha` del JSON del parte. Cruza el parte con las tarjetas y guarda los cambios en una sola orden: crea las nuevas, actualiza las abiertas, reabre o resuelve las que toca y respeta las que movió el usuario.
+2. Locuta con su salida, no con `resumen_voz`: `semaforo`, `voz.activas` (rojo primero; las de marca `reabierta` o `empeorada`, dilo), cuántas siguen dejadas de lado (`voz.dejadas`, sin detallarlas) y `sin_comprobar`. Lo de `fiabilidad: estimado` se dice como estimado, nunca como hecho.
 
 **Un parte de un solo tenant (`--tenant`) no se cruza con el tablero:** locuta su `resumen_voz`.
 
-**Si algo falla, nunca ocultes un hallazgo.** Si no puedes leer las tarjetas, si `narrador tablero` sale con 3 o si el plan trae `fiable: false`, locuta con `resumen_voz` del parte, sin filtrar, y di que el tablero no respondió: su semáforo podría ser un verde falso. Si solo falla la escritura, locuta con el plan y avisa. `narrador parte` sale con 0, 1 o 2 según el semáforo; solo la 3 es un fallo.
+**Si algo falla, nunca ocultes un hallazgo.** Si `narrador tablero aplicar` sale con un código distinto de 0 (3: no pudo leer el archivo o el parte; 5: otro proceso estaba escribiendo, reintenta una vez) o si su salida trae `fiable: false`, locuta con `resumen_voz` del parte, sin filtrar, y di que el tablero no respondió: su semáforo podría ser un verde falso. No recrees ni edites el archivo a mano. `narrador parte` sale con 0, 1 o 2 según el semáforo; solo la 3 es un fallo.
 
 ## Formato de voz (3-4 líneas 🎙️, cada una de 25 palabras como mucho)
 
@@ -47,7 +44,7 @@ Orden fijo: semáforo global → lo rojo → lo ámbar relevante → agenda y co
 
 ## Texto debajo (sin voz, 25 líneas como mucho)
 
-Tabla por tenant con ✅/⚠️/❌/– para n8n, workflow, ejecuciones, Chatwoot, Supabase, Meta, certificado, chat de pruebas y sonda (copia la de `narrador parte` sin `--json`, que ya la imprime); pendientes con días de arrastre; correo en una línea por mensaje; y la ruta del informe completo.
+Tabla por tenant con ✅/⚠️/❌/– para n8n, workflow, ejecuciones, respuestas de emergencia, Chatwoot, Supabase, Meta, certificado, chat de pruebas y sonda (copia la de `narrador parte` sin `--json`, que ya la imprime); pendientes con días de arrastre; correo en una línea por mensaje; y la ruta del informe completo.
 
 ## Reglas
 
@@ -58,4 +55,5 @@ Tabla por tenant con ✅/⚠️/❌/– para n8n, workflow, ejecuciones, Chatwoo
 - **Memoria:** no guardes claves, hosts, ids, cifras ni anomalías del parte. Solo, si acaso, una preferencia del usuario sobre el parte (hora, qué le interesa, qué le sobra).
 - Si `narrador parte` falla (salida 3), dilo en una línea y ofrece repetirlo; no improvises los chequeos.
 - Configuración (no secreta) en `~/.config/narrador/parte.json`: `hora_corte`, `ssh`, `imap_tech`, `openai_saldo`, `sonda_e2e`, `sonda_mensaje`, `correo`, umbrales y tenants. Las credenciales se leen de los `.env` de cada tenant y de `~/.config/narrador/parte.env` (600). No las copies a ningún sitio.
+- **Respuestas de emergencia** (`respuestas_fallo`, bloque `tenants`): cuenta por cliente, con GET a la búsqueda de Chatwoot, los mensajes salientes y públicos de las últimas 24 h con la frase literal que envía el workflow cuando el modelo falla o devuelve vacío («Perdón, ¿me lo repites?» y sus variantes), sin contar bandejas, etiquetas ni contactos de prueba. Ámbar con una conversación, rojo con dos o más (`umbrales.fallo_conv_rojo`). Detecta lo que la ejecución de n8n no dice, porque acaba en *success*. **La cobertura es siempre parcial, dilo así:** un cero significa «sin esa frase», no «sin fallos». En buscasa, con un inmueble activo o tras aceptar el aviso de privacidad, el fallo sale como una oferta normal; en marlovet y vindam, si ya hay derivación, sale como el mensaje de traspaso. `na`: loyal (su repregunta también es normal, no hay frase fiable) y cliente sin credencial de Chatwoot. `error`: la lectura falló. Ninguno de los dos es verde; un `na` o un `error` no crea tarjeta en el tablero, solo sale en `sin_comprobar`.
 - **OpenAI sin créditos** (incidente del 2026-10-20): el agente de n8n tiene `onError=continue`, así que cuando el modelo devuelve «no credits remaining» la ejecución acaba en *success* y el bot responde con relleno. El chequeo `ejecuciones` inspecciona las últimas ejecuciones con proceso real y lo pone en rojo («modelo sin créditos de OpenAI»). Para avisar **antes**, el chequeo global `saldo de OpenAI` estima saldo ≈ `recarga_usd` − gasto desde `fecha_recarga` (Costs API, GET con `OPENAI_ADMIN_KEY` de `parte.env`) y días restantes al ritmo de los últimos 7 días: ámbar a `dias_ambar` (7), rojo a `dias_rojo` (2) o por debajo de `minimo_usd` (10). Cada vez que el usuario recargue, actualiza `recarga_usd` y `fecha_recarga` en `parte.json`. Sin clave de administración sale como no comprobado: díselo.

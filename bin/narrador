@@ -23,10 +23,13 @@
   narrador recordar MINUTOS TEXTO
   narrador guia [TEMA]       (guías de Ío: sesiones, proyectos, escritorio, personal, mentor)
   narrador parte [--json|--md|--forzar|--solo A,B|--tenant T|--entregado|--simular|--estado]   (parte matinal: salud de producción y pendientes, solo lectura)
-  narrador tablero plan|semilla --tarjetas CARPETA --versiones JSON [--parte ARCHIVO]   (tablero de hallazgos: calcula los cambios a partir del parte, no escribe nada)
+  narrador tablero ver [--json] | plan|aplicar [--fecha F] [--parte ARCHIVO] | mover ID COLUMNA --origen mod|voz [--desde COLUMNA]
+                   | deshacer --origen mod|voz | importar CARPETA   (tablero de hallazgos, en un archivo local: aplicar cruza el parte y guarda; plan solo lo simula)
   narrador memoria revisar [--json] | indices | buscar PALABRAS | informes | guardar [MENSAJE] [--auto]   (memoria de Ío: vault de notas)
   narrador decisiones listar [-n N] [--sesion ID] [--proyecto P] [--desde AAAA-MM-DD] [--tipo T] [--json] | ruta
                              (registro de decisiones: lo que Claude iba a hacer y por qué)
+  narrador sesion abrir NOMBRE|ID   (trabajador: terminal con su chat; interactiva: trae su ventana al frente)
+  narrador roadmap [--json] [PROYECTO]   (roadmap por proyecto desde su vault conocimiento/: avance, deriva, estimación; solo lectura)
 """
 
 import json
@@ -255,6 +258,12 @@ def main(args: list[str]) -> None:
     elif cmd == "decisiones":
         import decisiones
         sys.exit(decisiones.main(resto))
+    elif cmd == "sesion":
+        import abrir_sesion
+        sys.exit(abrir_sesion.main(resto))
+    elif cmd == "roadmap":
+        import roadmap
+        sys.exit(roadmap.main(resto))
     else:
         sys.exit(__doc__.strip())
 
