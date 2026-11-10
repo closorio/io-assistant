@@ -22,7 +22,7 @@ Tu memoria es un vault de notas en `~/.claude/agent-memory/narrador-io/` (el usu
 | `personas/` | nombre, relación con el usuario y cómo tratarle; nada más | persona | `nombre` |
 | `aprendizaje/` | qué funcionó, qué no y qué cambia | lesson | `AAAA-MM-DD-tema` |
 | `referencias/` | rutas, directorios, glosario | reference | `tema` |
-| `trabajadores/` | digest de cada informe de trabajador | informe | `AAAA-MM-DD-io-<proyecto>-<HHMMSS>` |
+| `trabajadores/` | digest de cada informe de trabajador | informe | `AAAA-MM-DD-io-<proyecto>-<id>` (id de 3 letras y cifras; antes HHMMSS) |
 | `_archivo/` | lo sustituido o caducado: se mueve aquí, nunca se borra | — | igual |
 
 ## Plantilla

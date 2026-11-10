@@ -6,6 +6,7 @@ Solo biblioteca estándar. Lo usa bin/narrador; Ío lo llama por Bash.
 import json
 import os
 import re
+import secrets
 import shutil
 import subprocess
 import sys
@@ -240,9 +241,26 @@ def _archivo_resultado(nombre: str) -> Path:
     return RUNTIME / "trabajadores" / f"{nombre}.md"
 
 
+# sin 0/o, 1/l/i: se dicen y se escuchan sin confusión
+ALFABETO_ID = "abcdefghjkmnpqrstuvwxyz23456789"
+
+
+def id_corto(usados: set[str], largo: int = 3) -> str:
+    """Identificador alfanumérico breve, fácil de decir en voz alta y distinto de los ya usados."""
+    while True:
+        cand = "".join(secrets.choice(ALFABETO_ID) for _ in range(largo))
+        if cand not in usados and any(c.isalpha() for c in cand) and any(c.isdigit() for c in cand):
+            return cand
+
+
+def nombre_trabajador(ruta: Path, registro: list[dict]) -> str:
+    usados = {t.get("nombre", "").rsplit("-", 1)[-1] for t in registro}
+    return f"io-{re.sub(r'[^a-z0-9]+', '-', ruta.name.lower()).strip('-')[:24]}-{id_corto(usados)}"
+
+
 def lanzar(proyecto: str, tarea: str, modelo: str | None = None, contrato: bool = False) -> None:
     ruta = resolver_proyecto(proyecto)
-    nombre = f"io-{re.sub(r'[^a-z0-9]+', '-', ruta.name.lower()).strip('-')[:24]}-{time.strftime('%H%M%S')}"
+    nombre = nombre_trabajador(ruta, _registro())
     original = tarea
     if contrato:
         _archivo_resultado(nombre).parent.mkdir(parents=True, exist_ok=True)
