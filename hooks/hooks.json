@@ -1,5 +1,5 @@
 {
-  "description": "Narrador: lee en voz alta las líneas 🎙️, se calla cuando escribes y pide confirmación antes de enviar en nombre del usuario",
+  "description": "Narrador: lee en voz alta las líneas 🎙️, se calla cuando escribes pide confirmación antes de enviar en nombre del usuario y comprueba el cierre de cada turno de Ío",
   "hooks": {
     "MessageDisplay": [
       {
@@ -25,6 +25,20 @@
               "${CLAUDE_PLUGIN_ROOT}/scripts/hook.py"
             ],
             "timeout": 3
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/scripts/cierre.py"
+            ],
+            "timeout": 5
           }
         ]
       }
