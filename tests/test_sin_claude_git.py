@@ -26,6 +26,21 @@ def test_pr_con_generated_with_se_deniega():
     assert s.decidir(ev(cmd)) is not None
 
 
+def test_git_push_dentro_de_un_texto_no_cuenta(tmp_path):
+    cwd = _repo(tmp_path, "fix\n\nCo-Authored-By: Claude <noreply@anthropic.com>")
+    cmd = "python3 - <<'EOF'\ns='deniega git commit, git push y gh pr create'\nEOF"
+    assert s.decidir(ev(cmd, cwd)) is None
+
+
+def test_push_tras_cd_si_cuenta(tmp_path):
+    cwd = _repo(tmp_path, "fix\n\nCo-Authored-By: Claude <noreply@anthropic.com>")
+    assert s.decidir(ev(f'cd "{cwd}" && git push origin HEAD', cwd)) is not None
+
+
+def test_lo_que_va_tras_el_commit_no_cuenta():
+    assert s.decidir(ev('git commit -m "fix: x" && git log | grep -c anthropic')) is None
+
+
 def test_otros_comandos_pasan():
     assert s.decidir(ev("ls ~/.claude && echo claude")) is None
 

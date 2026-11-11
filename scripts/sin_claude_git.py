@@ -20,9 +20,11 @@ import sys
 
 PROHIBIDO = re.compile(r"claude|anthropic", re.IGNORECASE)
 INOCUO = re.compile(r"\S*\.claude/\S*|CLAUDE\.md", re.IGNORECASE)
-COMMIT = re.compile(r"\bgit\b(?:\s+-[cC]\s+\S+)*\s+commit\b")
-PUSH = re.compile(r"\bgit\b(?:\s+-[cC]\s+\S+)*\s+push\b")
-PR = re.compile(r"\bgh\s+pr\s+(?:create|edit)\b")
+# Solo en posición de comando: al principio o tras ; && || | ( o salto de línea.
+INICIO = r"(?:^|[;&|(\n])\s*(?:\w+=[^\s'\"]*\s+)*"
+COMMIT = re.compile(INICIO + r"git(?:\s+-[cC]\s+\S+)*\s+commit\b")
+PUSH = re.compile(INICIO + r"git(?:\s+-[cC]\s+\S+)*\s+push\b")
+PR = re.compile(INICIO + r"gh\s+pr\s+(?:create|edit)\b")
 
 
 def menciona(texto: str) -> bool:
@@ -37,10 +39,25 @@ def commits_sin_subir(cwd: str) -> str:
     return r.stdout if r.returncode == 0 else ""
 
 
+FIN = re.compile(r"\s(?:&&|\|\|)\s")
+
+
+def tramo(comando: str, patron: re.Pattern) -> str | None:
+    """El trozo del comando desde la orden hasta el siguiente && o ||."""
+    m = patron.search(comando)
+    if not m:
+        return None
+    resto = comando[m.start():]
+    f = FIN.search(resto, 1)
+    return resto[: f.start()] if f else resto
+
+
 def motivo(comando: str, cwd: str) -> str | None:
-    if COMMIT.search(comando) and menciona(comando[COMMIT.search(comando).start():]):
+    t = tramo(comando, COMMIT)
+    if t and menciona(t):
         return "el mensaje del commit menciona a Claude o Anthropic (incluido Co-Authored-By)"
-    if PR.search(comando) and menciona(comando[PR.search(comando).start():]):
+    t = tramo(comando, PR)
+    if t and menciona(t):
         return "el título o el cuerpo del PR mencionan a Claude o Anthropic"
     if PUSH.search(comando) and menciona(commits_sin_subir(cwd)):
         return "hay commits sin subir que mencionan a Claude o Anthropic; reescríbelos antes del push"
