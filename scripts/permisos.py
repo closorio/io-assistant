@@ -51,6 +51,9 @@ def pendientes(lista: list[dict]) -> list[dict]:
         # una sesión de fondo sin proceso no espera a nadie: es lo que quedó de una que ya no corre
         if not espera or (a.get("kind") == "background" and not a.get("pid")):
             continue
+        # una de fondo libre y sin motivo ya entregó su turno: Claude la deja en «blocked», pero no pide nada
+        if a.get("kind") == "background" and a.get("status") == "idle" and not a.get("waitingFor"):
+            continue
         razon = a.get("waitingFor")
         motivo = MOTIVOS.get(razon, "algo") if isinstance(razon, str) else "algo"
         sesion = a.get("sessionId") or a.get("id") or a.get("name")

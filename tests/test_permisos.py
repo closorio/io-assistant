@@ -38,6 +38,13 @@ class PendientesTest(unittest.TestCase):
                  INTERACTIVA_LIBRE]
         self.assertEqual([p["nombre"] for p in permisos.pendientes(lista)], ["fondo", "ventana"])
 
+    def test_de_fondo_libre_tras_entregar_no_espera(self):
+        # forma real del 2026-11-10: trabajador que terminó su informe, vivo, «idle» y «blocked»
+        entregado = {"id": "eee", "kind": "background", "name": "entregado", "sessionId": "s-en", "cwd": "/tmp/e",
+                     "pid": 14, "state": "blocked", "status": "idle"}
+        self.assertEqual(permisos.pendientes([entregado, FONDO_PERMISO])[0]["nombre"], "fondo")
+        self.assertEqual(len(permisos.pendientes([entregado])), 0)
+
     def test_motivos_en_llano(self):
         por_nombre = {p["nombre"]: p["motivo"] for p in permisos.pendientes([FONDO_PERMISO, INTERACTIVA_PREGUNTA])}
         self.assertEqual(por_nombre, {"fondo": "un permiso", "ventana": "una respuesta"})
