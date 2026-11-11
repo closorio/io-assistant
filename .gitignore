@@ -1,3 +1,4 @@
 .runtime/
 __pycache__/
 .claude/
+mods/*/.claude-plugin/types/

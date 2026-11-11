@@ -1,0 +1,6 @@
+{
+  "name": "io-cabina",
+  "version": "0.3.0",
+  "description": "Cabina de Ío: panel lateral con las sesiones, lo que te espera, trabajos en curso y alertas, sin pasar por la conversación.",
+  "types": "./types/index.d.ts"
+}
