@@ -297,25 +297,30 @@ def lanzar(proyecto: str, tarea: str, modelo: str | None = None, contrato: bool 
 
 
 def _estado_p(t: dict) -> tuple[str, str]:
-    """(estado, resultado) de un trabajador sin interfaz, leyendo su log de stream-json."""
-    resultado = ""
+    """(estado, resultado) de un trabajador sin interfaz, leyendo su log de stream-json.
+
+    Un `claude -p` escribe un «result» al cerrar cada turno, también cuando sigue vivo esperando una tarea
+    de fondo (una suite en marcha) que lo despertará: mientras el proceso viva, sigue trabajando."""
+    ultimo = None
     try:
         with open(t["log"], encoding="utf-8", errors="replace") as f:
             for linea in f:
                 if '"type":"result"' in linea.replace(" ", ""):
                     try:
-                        r = json.loads(linea)
+                        ultimo = json.loads(linea)
                     except ValueError:
                         continue
-                    estado = "falló" if r.get("is_error") else "terminado"
-                    return estado, recortar(r.get("result") or "", 160)
     except OSError:
         return "sin log", ""
+    resultado = recortar((ultimo or {}).get("result") or "", 160)
     try:
         os.kill(int(t.get("pid", 0)), 0)
         return "trabajando", resultado
     except (OSError, ValueError):
-        return "parado sin resultado", resultado
+        pass
+    if ultimo is None:
+        return "parado sin resultado", ""
+    return ("falló" if ultimo.get("is_error") else "terminado"), resultado
 
 
 def lista_trabajadores() -> None:
