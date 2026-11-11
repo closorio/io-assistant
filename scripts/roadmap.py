@@ -16,9 +16,19 @@ hitos_hechos, cerrado, actualizado, siguiente). Por proyecto separa:
             desde el inicio, corregido por la actividad de las últimas 4 semanas frente a la
             media), con su confianza y por qué; dice «pocos datos» cuando los hay.
 
+Segunda fuente, para proyectos con una sola hoja de ruta: un archivo .md (ruta relativa a la
+raíz en "roadmap_md") con una tabla bajo «## Rumbo vigente (DD-MM-AAAA)» de columnas
+| # | Acción | Dueño | Hecho cuando | Tope | Puertas |. Cada fila cuenta como una fase de un hito:
+hecha si el título de la Acción (su negrita inicial) o «Hecho cuando» llevan ✅ o «hecha»;
+aparcada si dicen «congelad» o «aparcad»; las de «al final» van detrás. El siguiente paso es
+la primera fila abierta. La fecha del encabezado es la de actualización; la fecha objetivo
+solo si una celda dice «objetivo … DD-MM». El archivo solo se lee.
+
 Sin fecha objetivo escrita no hay deriva: se dice «sin fecha objetivo», nunca se inventa.
 Solo lectura, solo biblioteca estándar. La lista de proyectos se cambia con
-~/.local/share/narrador/roadmap.json: {"proyectos": [{"nombre": "...", "ruta": "..."}]}.
+~/.local/share/narrador/roadmap.json:
+  {"proyectos": [{"nombre": "...", "ruta": "...", "roadmap_md": "conocimiento/60-backlog/roadmap.md"}]}
+("roadmap_md" es opcional; sin ella se leen las notas de conocimiento/roadmap/).
 """
 
 import json
@@ -36,7 +46,8 @@ PROYECTOS_DEFECTO = [
     {"nombre": "project-soma", "ruta": str(DOCS / "thereisnospoon" / "project-soma")},
     {"nombre": "holo-ui", "ruta": str(DOCS / "thereisnospoon" / "holo-ui")},
     {"nombre": "vindam_dashboard_engine",
-     "ruta": str(DOCS / "greedisgood" / "vindam platform" / "vindam_dashboard_engine")},
+     "ruta": str(DOCS / "greedisgood" / "vindam platform" / "vindam_dashboard_engine"),
+     "roadmap_md": "conocimiento/60-backlog/roadmap.md"},
 ]
 CONFIG = RUNTIME / "roadmap.json"
 VENTANA = 28  # días: «las últimas 4 semanas»
@@ -175,6 +186,182 @@ def leer_nota(ruta: Path) -> dict | None:
         "pendientes": pendientes(cuerpo),
         "avisos": avisos,
     }
+
+
+# --- tabla «Rumbo vigente» de un archivo único ------------------------------------------
+
+RUMBO = re.compile(r"^(#{1,6})\s+Rumbo vigente\b(.*)$", re.IGNORECASE)
+HECHA = re.compile(r"✅|\bhecha\b", re.IGNORECASE)
+APARCADA = re.compile(r"congelad|aparcad", re.IGNORECASE)
+AL_FINAL = re.compile(r"\bal final\b", re.IGNORECASE)
+DIA = r"(\d{4}-\d{2}-\d{2}|\b\d{1,2}-\d{1,2}(?:-\d{4})?\b)"
+CIERRE = re.compile(r"(?:✅|\bhecha\b)[^|]{0,15}?" + DIA, re.IGNORECASE)
+OBJETIVO = re.compile(r"\bobjetivo\b[^;|]{0,40}?" + DIA, re.IGNORECASE)
+VACIA = {"", "—", "–", "-"}
+COLUMNAS = {"#": "numero", "accion": "accion", "dueno": "dueno", "hecho cuando": "hecho_cuando",
+            "tope": "tope", "puertas": "puertas"}
+
+
+def celdas(linea: str) -> list[str]:
+    """Celdas de una fila de tabla; no corta en «|» dentro de `código`, [[enlace|alias]] o «\\|»."""
+    t = linea.strip()
+    t = t[1:] if t.startswith("|") else t
+    t = t[:-1] if t.endswith("|") and not t.endswith("\\|") else t
+    salida, actual, codigo, enlace, i = [], "", False, 0, 0
+    while i < len(t):
+        c = t[i]
+        if c == "\\" and t[i + 1:i + 2] == "|":
+            actual += "|"
+            i += 2
+            continue
+        if c == "`":
+            codigo = not codigo
+        elif not codigo and t[i:i + 2] == "[[":
+            enlace += 1
+        elif not codigo and t[i:i + 2] == "]]" and enlace:
+            enlace -= 1
+        if c == "|" and not codigo and not enlace:
+            salida.append(actual.strip())
+            actual = ""
+        else:
+            actual += c
+        i += 1
+    salida.append(actual.strip())
+    return salida
+
+
+def _limpiar(texto: str) -> str:
+    t = re.sub(r"\[\[([^\]|]*)\|([^\]]*)\]\]", r"\2", texto)
+    t = re.sub(r"\[\[([^\]]*)\]\]", lambda m: m.group(1).rsplit("/", 1)[-1], t)
+    t = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", t)
+    t = t.replace("`", "").replace("**", "").replace("__", "").replace("✅", "")
+    t = re.sub(r"~~[^~]*~~", "", t)
+    for _ in range(3):  # paréntesis, también anidados
+        t = re.sub(r"\s*\([^()]*\)", "", t)
+    return re.sub(r"\s+", " ", t).strip()
+
+
+def _titulo(celda: str) -> str:
+    """La negrita inicial de la celda, o la primera frase si no empieza en negrita."""
+    t = celda.strip()
+    if t.startswith("**"):
+        fin = t.find("**", 2)
+        if fin > 2:
+            return t[2:fin]
+    return re.split(r"(?<=[.;])\s", t, maxsplit=1)[0]
+
+
+def resumir(celda: str, maximo: int = 90) -> str:
+    """Una frase corta y sin markdown a partir de una celda larga."""
+    t = _limpiar(_titulo(celda)).rstrip(" :;,.")
+    if len(t) > maximo:
+        t = t[:maximo - 1].rsplit(" ", 1)[0].rstrip(" :;,.") + "…"
+    return t
+
+
+def _dia(texto: str, base: date | None) -> date | None:
+    """AAAA-MM-DD o DD-MM[-AAAA]; sin año toma el de la fecha base (o el siguiente si queda muy atrás)."""
+    if FECHA.match(texto):
+        return _fecha(texto)
+    partes = [int(x) for x in texto.split("-")]
+    anio = partes[2] if len(partes) == 3 else (base or date.today()).year
+    try:
+        d = date(anio, partes[1], partes[0])
+    except ValueError:
+        return None
+    if len(partes) == 2 and base and d < base - timedelta(days=180):
+        d = d.replace(year=d.year + 1)
+    return d
+
+
+def _duenos(celda: str) -> str:
+    """«Sesión, lo hecho; usuario, el push» → «Sesión, Usuario»: el actor de cada tramo."""
+    vistos = []
+    for tramo in _limpiar(celda).split(";"):
+        actor = tramo.split(",")[0].strip()
+        actor = actor[:1].upper() + actor[1:]
+        if actor and actor not in VACIA and actor not in vistos:
+            vistos.append(actor)
+    return ", ".join(vistos)
+
+
+def _normal(cabecera: str) -> str:
+    t = _limpiar(cabecera).lower()
+    for a, b in (("á", "a"), ("é", "e"), ("í", "i"), ("ó", "o"), ("ú", "u"), ("ñ", "n")):
+        t = t.replace(a, b)
+    return t
+
+
+def leer_rumbo(ruta: Path) -> tuple[list[dict], date | None, str]:
+    """(filas como notas, fecha del encabezado, error) de la tabla «Rumbo vigente»."""
+    try:
+        lineas = ruta.read_text(encoding="utf-8").split("\n")
+    except (OSError, UnicodeDecodeError) as e:
+        return [], None, f"no se pudo leer {ruta}: {e}"
+    inicio = next((i for i, l in enumerate(lineas) if RUMBO.match(l)), None)
+    if inicio is None:
+        return [], None, f"la hoja de ruta no tiene tabla «Rumbo vigente»: {ruta}"
+    nivel, resto = RUMBO.match(lineas[inicio]).groups()
+    m = re.search(DIA, resto)
+    fecha = _dia(m.group(1), None) if m and m.group(1).count("-") == 2 else None
+    tabla: list[str] = []
+    for linea in lineas[inicio + 1:]:
+        cab = re.match(r"^(#{1,6})\s", linea)
+        if cab and len(cab.group(1)) <= len(nivel):
+            break
+        if linea.lstrip().startswith("|"):
+            tabla.append(linea)
+        elif tabla:
+            break
+    if len(tabla) < 2:
+        return [], fecha, f"la hoja de ruta no tiene tabla «Rumbo vigente»: {ruta}"
+    claves = [COLUMNAS.get(_normal(c), "") for c in celdas(tabla[0])]
+    if "accion" not in claves:
+        return [], fecha, f"la tabla «Rumbo vigente» no tiene columna «Acción»: {ruta}"
+    filas, al_final = [], []
+    for linea in tabla[1:]:
+        valores = celdas(linea)
+        if all(re.fullmatch(r":?-{2,}:?", v or "--") for v in valores):
+            continue
+        f = {k: v for k, v in zip(claves, valores) if k}
+        accion, hc = f.get("accion", ""), f.get("hecho_cuando", "")
+        if not accion.strip():
+            continue
+        titulo = _titulo(accion)
+        marcas = titulo + " | " + hc
+        estado = ("hecho" if HECHA.search(marcas) else
+                  "aparcado" if APARCADA.search(marcas) else "pendiente")
+        cierre = CIERRE.search(marcas) if estado == "hecho" else None
+        objetivo = next((d for v in valores if (o := OBJETIVO.search(v)) and (d := _dia(o.group(1), fecha))), None)
+        numero = f.get("numero", "").strip() or str(len(filas) + len(al_final) + 1)
+        fase = resumir(accion)
+        fila = {
+            "nota": f"{numero}. {fase}",
+            "numero": numero,
+            "fase": fase,
+            "estado": estado,
+            "responsable": _duenos(f.get("dueno", "")),
+            "inicio": None,
+            "objetivo": objetivo,
+            "cerrado": _dia(cierre.group(1), fecha) if cierre else None,
+            "actualizado": fecha,
+            "hitos_total": 1,
+            "hitos_hechos": int(estado == "hecho"),
+            "siguiente": "",
+            "pendientes": ([f"hecho cuando: {resumir(hc, 110)}"]
+                           if estado != "hecho" and _limpiar(hc) not in VACIA else []),
+            "tope": "" if _limpiar(f.get("tope", "")) in VACIA else resumir(f.get("tope", "")),
+            "puertas": "" if _limpiar(f.get("puertas", "")) in VACIA else resumir(f.get("puertas", ""), 110),
+            "avisos": [],
+        }
+        (al_final if AL_FINAL.search(marcas) else filas).append(fila)
+    filas += al_final
+    sig = next((n for n in filas if n["estado"] == "pendiente"), None)
+    if sig:
+        sig["siguiente"] = sig["fase"]
+    if not filas:
+        return [], fecha, f"la tabla «Rumbo vigente» no tiene filas: {ruta}"
+    return filas, fecha, ""
 
 
 # --- git (solo lectura) -----------------------------------------------------------------
@@ -397,11 +584,35 @@ def sesion_activa() -> dict | None:
     return mejor
 
 
+def _archivos_conocidos() -> list[str]:
+    """Rutas relativas de hoja de ruta única que traen los proyectos configurados."""
+    return sorted({p["roadmap_md"] for p in proyectos() if p.get("roadmap_md")})
+
+
+def entrada_de(raiz: Path) -> dict:
+    """El proyecto configurado con esa raíz; si no lo hay, uno nuevo con su hoja de ruta si la tiene."""
+    raiz = Path(raiz).expanduser().resolve()
+    for p in proyectos():
+        try:
+            if Path(p["ruta"]).expanduser().resolve() == raiz:
+                return dict(p)
+        except (OSError, RuntimeError):
+            continue
+    entrada = {"nombre": raiz.name, "ruta": str(raiz)}
+    if not (raiz / "conocimiento" / "roadmap").is_dir():
+        rel = next((r for r in _archivos_conocidos() if (raiz / r).is_file()), None)
+        if rel:
+            entrada["roadmap_md"] = rel
+    return entrada
+
+
 def raiz_de(cwd: str) -> Path:
-    """Sube desde cwd hasta la carpeta con conocimiento/roadmap; si no hay, la raíz git (o cwd)."""
+    """Sube desde cwd hasta la carpeta con conocimiento/roadmap (o con la hoja de ruta única de un
+    proyecto configurado); si no hay, la raíz git (o cwd)."""
     ruta = Path(cwd).expanduser().resolve()
+    archivos = _archivos_conocidos()
     for r in (ruta, *ruta.parents):
-        if (r / "conocimiento" / "roadmap").is_dir():
+        if (r / "conocimiento" / "roadmap").is_dir() or any((r / a).is_file() for a in archivos):
             return r
         if r == Path.home():
             break
@@ -422,6 +633,22 @@ def informe(p: dict, hoy: date) -> dict:
     vacio = {"nombre": p["nombre"], "ruta": str(ruta), "vault": str(ruta / "conocimiento"),
              "semaforo": "sin_objetivo", "deriva_texto": "", "medido": None, "estimado": None,
              "avisos": [], "notas": []}
+    if p.get("roadmap_md"):
+        archivo = ruta / p["roadmap_md"]
+        vacio = {**vacio, "fuente": str(archivo), "fuente_tipo": "tabla", "rumbo_fecha": None}
+        if not archivo.is_file():
+            return {**vacio, "error": f"sin hoja de ruta: falta {archivo}"}
+        filas, fecha, error = leer_rumbo(archivo)
+        if error:
+            return {**vacio, "rumbo_fecha": _iso(fecha), "error": error}
+        git = datos_git(ruta, hoy)
+        if git and fecha and (not git["primer_commit"] or git["primer_commit"] < fecha):
+            # el ritmo se mide desde que se fijó el rumbo, no desde el primer commit del repo
+            git = {**git, "primer_commit": fecha}
+        r = calcular(p["nombre"], ruta, filas, git, hoy)
+        sig = next((n for n in filas if n["siguiente"]), None)
+        r["medido"]["siguiente_fase"] = f"acción {sig['numero']}" if sig else ""
+        return {**r, "fuente": str(archivo), "fuente_tipo": "tabla", "rumbo_fecha": _iso(fecha)}
     if not carpeta.is_dir():
         return {**vacio, "error": f"sin vault: falta {carpeta}"}
     notas = [n for f in sorted(carpeta.glob("*.md")) if (n := leer_nota(f))]
@@ -447,8 +674,15 @@ def texto(r: dict) -> str:
               + (f" · {m['ultimo_movimiento_texto']}" if m["ultimo_movimiento_texto"] else ""),
               f"    archivos con cambios sin commit: {m['cambios_sin_commit']}" if m["cambios_sin_commit"] else "",
               f"    responsable: {m['responsable'] or '?'}",
-              f"    siguiente ({m['siguiente_fase'] or '-'}): {m['siguiente'] or 'sin siguiente paso'}",
-              "  estimado:"]
+              f"    siguiente ({m['siguiente_fase'] or '-'}): {m['siguiente'] or 'sin siguiente paso'}"]
+    if r.get("fuente_tipo") == "tabla":
+        iconos = {"hecho": "✓", "en-curso": "●", "aparcado": "◌"}
+        lineas.append(f"  acciones (rumbo vigente del {r.get('rumbo_fecha') or '?'}):")
+        for n in r["notas"]:
+            extra = [x for x in (n["responsable"], f"objetivo {n['objetivo']}" if n["objetivo"] else "",
+                                 f"cerrada {n['cerrado']}" if n["cerrado"] else "") if x]
+            lineas.append(f"    {iconos.get(n['estado'], '○')} {n['nota']}" + (f" · {' · '.join(extra)}" if extra else ""))
+    lineas.append("  estimado:")
     if e["fecha_prevista"]:
         lineas.append(f"    {e['hitos_restantes']} hitos restantes a {e['ritmo_hitos_semana']} por semana"
                       f" → hacia el {e['fecha_prevista']} · confianza {e['confianza']}")
@@ -487,10 +721,10 @@ def main(args: list[str]) -> int:
             return 2
         raiz = raiz_de(ses["cwd"])
         activo = {"sesion": ses.get("name") or ses.get("sessionId", "")[:8], "cwd": ses["cwd"]}
-        lista = [{"nombre": raiz.name, "ruta": str(raiz)}]
+        lista = [entrada_de(raiz)]
     elif resto and Path(resto[0]).expanduser().is_dir():
         raiz = raiz_de(resto[0])
-        lista = [{"nombre": raiz.name, "ruta": str(raiz)}]
+        lista = [entrada_de(raiz)]
     elif resto:
         filtro = resto[0].lower()
         lista = [p for p in lista if filtro in p["nombre"].lower()]

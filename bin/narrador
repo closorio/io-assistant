@@ -33,7 +33,7 @@
   narrador sesion esperar ID|TÍTULO [--max MIN]   (bloquea hasta que esa sesión se para o se cierra; para un Monitor de Ío)
   narrador sesion cerrar ID|TÍTULO   (termina una sesión abierta con `sesion plan` y cierra su terminal entera)
   narrador cierre resumen   (lo que el hook de cierre de turno ha bloqueado o anotado)
-  narrador roadmap [--json] [PROYECTO]   (roadmap por proyecto desde su vault conocimiento/: avance, deriva, estimación; solo lectura)
+  narrador roadmap [--json] [PROYECTO]   (roadmap por proyecto desde su vault conocimiento/ o su tabla «Rumbo vigente»: avance, deriva, estimación; solo lectura)
   narrador puerta añadir "TÍTULO" --comando C [--coste X] [--vuelta V] [--proyecto P] | lista [--json] [--todas]
                   | responder ID si|no [--origen cabina|voz|cli] | cerrar ID [--nota T] | esperar ID [--max MIN]
                              (puertas: lo que espera un sí; responder solo lo anota, nunca ejecuta el comando)
