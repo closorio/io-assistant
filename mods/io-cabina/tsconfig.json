@@ -1,0 +1,8 @@
+{
+  "extends": "./.claude-plugin/types/tsconfig.json",
+  "compilerOptions": {
+    // Sin claude-code-mcp: el mod no usa herramientas MCP, y con los muchos conectores de este equipo
+    // esa unión hace que TypeScript se rinda (TS2589) en cualquier `tool.call` de una herramienta propia.
+    "types": ["claude-code", "claude-code-tools"]
+  }
+}

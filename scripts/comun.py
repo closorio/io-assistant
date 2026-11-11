@@ -46,6 +46,7 @@ CONFIG_DEFECTO = {
     "edge": {"voz": "es-MX-DaliaNeural", "velocidad": 0},
     "kokoro": {"voz": "ef_dora", "velocidad": 1.0, "tono": 1.0},  # voces en español: ef_dora, em_alex, em_santa
     "spd": {"idioma": "es", "velocidad": 10},
+    "tonos": {"activos": True, "volumen": 0.4},  # tonos cortos de la cabina (narrador tono): volumen de pw-play, 0–1
     "escucha": {
         "pausa": False,
         "nombre": "Ío",  # palabra que le despierta
