@@ -63,8 +63,19 @@ def agentes(todas: bool = False) -> list[dict]:
         return []
 
 
+def _con_proceso(a: dict) -> bool:
+    """`claude agents` sigue dando, en «blocked» y sin `pid`, las de fondo que ya terminaron: sin proceso no está viva."""
+    try:
+        os.kill(int(a.get("pid")), 0)
+    except PermissionError:
+        return True
+    except (OSError, ValueError, TypeError):
+        return False
+    return True
+
+
 def vivas() -> None:
-    lista = agentes()
+    lista = [a for a in agentes() if _con_proceso(a)]
     if not lista:
         print("no hay sesiones de Claude Code abiertas")
         return
@@ -75,7 +86,7 @@ def vivas() -> None:
         if archivo.exists():
             titulo = metadatos_cwd(archivo, completo=False)[0]
         marca = " (esta)" if sesion == PROPIA else ""
-        estado = a.get("status") or a.get("state") or "?"  # las de fondo sin proceso solo traen `state`
+        estado = a.get("status") or a.get("state") or "?"  # algunas de fondo solo traen `state`
         motivo = f" ({a['waitingFor']})" if a.get("waitingFor") else ""
         print(f"{a.get('name', '?')}{marca}  {estado}{motivo}  {a.get('kind', '?')}  {corta(cwd)}"
               f"\n    sesión {sesion[:8]}  «{titulo or 'sin título'}»")

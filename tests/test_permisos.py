@@ -251,11 +251,37 @@ class RevisionTest(unittest.TestCase):
 class AsistenteEstadoTest(unittest.TestCase):
     def test_vivas_muestra_estado_y_motivo_en_ambas_formas(self):
         b = io.StringIO()
-        with mock.patch.object(asistente, "agentes", lambda todas=False: [FONDO_SIN_PROCESO, INTERACTIVA_PREGUNTA]), \
+        fondo = dict(FONDO_SIN_PROCESO, pid=os.getpid())  # de fondo viva: solo trae `state`
+        interactiva = dict(INTERACTIVA_PREGUNTA, pid=os.getpid())
+        with mock.patch.object(asistente, "agentes", lambda todas=False: [fondo, interactiva]), \
                 redirect_stdout(b):
             asistente.vivas()
         self.assertIn("residuo  blocked", b.getvalue())
         self.assertIn("ventana  waiting (input needed)", b.getvalue())
+
+    def test_vivas_descarta_las_que_ya_no_tienen_proceso(self):
+        # forma real del 2026-11-11: trabajadores de fondo terminados que `claude agents` sigue dando en
+        # «blocked», sin `pid`; y una con pid apuntado cuyo proceso ya murió
+        sin_pid = {"id": "e87062af", "kind": "background", "name": "terminado", "sessionId": "s-te", "cwd": "/tmp/t",
+                   "state": "blocked"}
+        hijo = subprocess.Popen([sys.executable, "-c", "pass"])
+        hijo.wait()
+        muerta = dict(INTERACTIVA_LIBRE, name="cerrada", pid=hijo.pid)
+        viva = dict(INTERACTIVA_LIBRE, pid=os.getpid())
+        b = io.StringIO()
+        with mock.patch.object(asistente, "agentes", lambda todas=False: [sin_pid, FONDO_SIN_PROCESO, muerta, viva]), \
+                redirect_stdout(b):
+            asistente.vivas()
+        self.assertNotIn("terminado", b.getvalue())
+        self.assertNotIn("residuo", b.getvalue())
+        self.assertNotIn("cerrada", b.getvalue())
+        self.assertIn("libre  idle", b.getvalue())
+
+    def test_vivas_sin_ninguna_con_proceso_lo_dice(self):
+        b = io.StringIO()
+        with mock.patch.object(asistente, "agentes", lambda todas=False: [FONDO_SIN_PROCESO]), redirect_stdout(b):
+            asistente.vivas()
+        self.assertEqual(b.getvalue().strip(), "no hay sesiones de Claude Code abiertas")
 
     def test_esperar_no_informa_none_como_estado(self):
         t = {"nombre": "x", "ruta": "/tmp", "inicio": 0, "contrato": False, "tipo": "bg"}
