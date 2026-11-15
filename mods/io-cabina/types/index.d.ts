@@ -95,7 +95,7 @@ export type Puerta = {
   origen: string
 }
 // Un trabajador que sigue en marcha: id corto, nombre completo y tarea.
-export type TrabajadorVivo = { id: string; nombre: string; tarea: string; proyecto: string }
+export type TrabajadorVivo = { id: string; nombre: string; tarea: string; proyecto: string; ruta: string }
 
 declare module 'claude-code' {
   interface PluginState {

@@ -82,7 +82,7 @@ const tableroSel = atom({ plugin: 'io-cabina', key: 'tableroSel' } as const, '')
 const puertas = atom({ plugin: 'io-cabina', key: 'puertas' } as const, [], { shape: 'puertas-1' })
 const puertasFallo = atom({ plugin: 'io-cabina', key: 'puertasFallo' } as const, '')
 // Trabajadores en marcha (para la franja) y gasto de esta sesión, si el motor lo lleva.
-const vivos = atom({ plugin: 'io-cabina', key: 'vivos' } as const, [], { shape: 'vivos-1' })
+const vivos = atom({ plugin: 'io-cabina', key: 'vivos' } as const, [], { shape: 'vivos-2' })
 const gasto = atom({ plugin: 'io-cabina', key: 'gasto' } as const, null)
 
 // Paleta a juego con la terminal de Ío (violeta del prompt sobre fondo oscuro).
@@ -97,11 +97,12 @@ const VERDE = '#9fd4a3'
 const AMBAR = '#f0c060'
 
 // Salida de `narrador sesiones --vivas`: una línea por sesión
-// («nombre  estado  tipo  ruta») y debajo «sesión ID  «título»».
+// («nombre  estado  tipo  ruta», el estado a veces con su motivo: «blocked (permission)») y debajo
+// «sesión ID  «título»».
 function leerSesiones(texto: string): Sesion[] {
   const salida: Sesion[] = []
   for (const linea of texto.split('\n')) {
-    const cabecera = /^(\S.*?)\s{2,}(\w+)\s{2,}(\w+)\s{2,}(.+)$/.exec(linea)
+    const cabecera = /^(\S.*?)\s{2,}(\w+)(?:\s+\([^)]*\))?\s{2,}(\w+)\s{2,}(.+)$/.exec(linea)
     if (cabecera) {
       salida.push({
         nombre: cabecera[1] ?? '',
@@ -314,6 +315,89 @@ const cortar = (texto: string, largo: number) =>
 
 const ultimo = (ruta: string) => ruta.split('/').filter(Boolean).pop() ?? ruta
 
+// Proyecto de una carpeta: el primer nivel bajo una de las raíces («~/Documentos/greedisgood/vindam
+// platform/x/.claude/worktrees/y» → «vindam platform»). Fuera de las raíces, '' (el grupo «otros»).
+const RAICES_PROYECTO = ['~/Documentos/greedisgood/', '~/Documentos/thereisnospoon/']
+const proyectoDe = (cwd: string) => {
+  const ruta = cwd === HOME || cwd.startsWith(`${HOME}/`) ? `~${cwd.slice(HOME.length)}` : cwd
+  for (const raiz of RAICES_PROYECTO) {
+    if (ruta.startsWith(raiz)) return ruta.slice(raiz.length).split('/')[0] ?? ''
+  }
+  return ''
+}
+
+// Lo que se ve de la carpeta dentro de su proyecto: nada en la raíz, «⎇ nombre» en un worktree y la
+// última carpeta en cualquier otra subcarpeta. Fuera de las raíces, la última carpeta.
+const dondeEn = (cwd: string, proyecto: string) => {
+  const arbol = /\/\.claude\/worktrees\/([^/]+)/.exec(cwd)
+  if (arbol) return `⎇ ${arbol[1]}`
+  const fin = ultimo(cwd)
+  return proyecto !== '' && fin === proyecto ? '' : fin
+}
+
+// La sesión de Ío: la lanza `bin/io` con `--name Ío` (desde ella se ve «Ío (esta)»).
+const esSesionIo = (s: Sesion) => /^Ío( \(esta\))?$/.test(s.nombre)
+
+type GrupoSesiones = {
+  clave: string
+  titulo: string
+  sesiones: Sesion[]
+  // Bloqueadas o con un permiso pendiente: lo que espera al usuario.
+  esperan: number
+  // Trabajadores sin interfaz (sin sesión en la lista) que corren en este proyecto.
+  sueltos: TrabajadorVivo[]
+  actividad: number
+}
+
+const RANGO_ESTADO: Record<string, number> = { blocked: 0, busy: 1, idle: 2 }
+
+// Agrupa las sesiones vivas por proyecto, con la de Ío aparte. Orden: primero los grupos con algo
+// esperando al usuario, luego por actividad reciente (cuándo se vio por última vez una sesión
+// ocupada), luego por sesiones ocupadas y por nombre; «otros» siempre al final.
+function agruparSesiones(
+  vivas: Sesion[],
+  espera: Espera[],
+  enMarcha: TrabajadorVivo[],
+  actividad: ReadonlyMap<string, number>,
+): { io: Sesion[]; grupos: GrupoSesiones[] } {
+  const io = vivas.filter(esSesionIo)
+  const porClave = new Map<string, GrupoSesiones>()
+  const grupo = (clave: string) => {
+    let g = porClave.get(clave)
+    if (!g) {
+      g = { clave, titulo: clave || 'otros', sesiones: [], esperan: 0, sueltos: [], actividad: actividad.get(clave) ?? 0 }
+      porClave.set(clave, g)
+    }
+    return g
+  }
+  const pide = new Set(espera.map(x => x.nombre))
+  for (const s of vivas) {
+    if (esSesionIo(s)) continue
+    const g = grupo(proyectoDe(s.cwd))
+    g.sesiones.push(s)
+    if (s.estado === 'blocked' || pide.has(s.nombre) || (s.id !== '' && pide.has(s.id))) g.esperan += 1
+  }
+  const conSesion = new Set(vivas.map(s => s.nombre.replace(/ \(esta\)$/, '')))
+  for (const t of enMarcha) {
+    if (conSesion.has(t.nombre) || !t.ruta) continue
+    grupo(proyectoDe(t.ruta)).sueltos.push(t)
+  }
+  const grupos = [...porClave.values()]
+  for (const g of grupos) {
+    g.sesiones.sort((a, b) => (RANGO_ESTADO[a.estado] ?? 3) - (RANGO_ESTADO[b.estado] ?? 3) || a.nombre.localeCompare(b.nombre))
+  }
+  const ocupadas = (g: GrupoSesiones) => g.sesiones.filter(s => s.estado === 'busy').length + g.sueltos.length
+  grupos.sort(
+    (a, b) =>
+      Number(a.clave === '') - Number(b.clave === '') ||
+      Number(b.esperan > 0) - Number(a.esperan > 0) ||
+      b.actividad - a.actividad ||
+      ocupadas(b) - ocupadas(a) ||
+      a.titulo.localeCompare(b.titulo),
+  )
+  return { io, grupos }
+}
+
 const hora = (ms: number) => {
   const d = new Date(ms)
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
@@ -423,7 +507,7 @@ async function trabajadoresVivos($: EngineInterface, lanzados: Lanzado[], vivas:
       const log = await $.fs.stat(t.log).catch(() => undefined)
       enMarcha = log !== undefined && ahoraMs - log.mtimeMs < 120000
     }
-    if (enMarcha) salida.push({ id: idTrabajador(t.nombre), nombre: t.nombre, tarea: t.tarea, proyecto: ultimo(t.ruta) })
+    if (enMarcha) salida.push({ id: idTrabajador(t.nombre), nombre: t.nombre, tarea: t.tarea, proyecto: ultimo(t.ruta), ruta: t.ruta })
   }
   return salida
 }
@@ -698,6 +782,9 @@ export const register: Register = on => {
   const vistas = new Set<string>()
   // Para los tonos: qué trabajadores seguían en marcha y qué puertas había en la vuelta anterior.
   let vivosAntes = new Set<string>()
+  // Proyecto → última vez que se vio una sesión suya ocupada o bloqueada (o un trabajador suyo en
+  // marcha): ordena los grupos de /cabina por actividad reciente. Una recarga la empieza de cero.
+  const actividad = new Map<string, number>()
   let puertasAntes = new Set<string>()
 
   on('session.start', async ($, e, next) => {
@@ -781,6 +868,7 @@ export const register: Register = on => {
           terminados = [...vivosAntes].filter(n => !ids.has(n)).length
           vivosAntes = ids
           await update($, vivos, () => enMarcha)
+          for (const v of enMarcha) if (v.ruta) actividad.set(proyectoDe(v.ruta), ahoraMs)
         }
         // Puertas: las nuevas abiertas suenan; un fallo de lectura no cambia nada.
         const puertasAhora = await sondearPuertas($)
@@ -797,6 +885,9 @@ export const register: Register = on => {
           // el motor no lleva la cuenta aquí
         }
 
+        for (const s of sesionesAhora) {
+          if (s.estado === 'busy' || s.estado === 'blocked') actividad.set(proyectoDe(s.cwd), ahoraMs)
+        }
         await update($, sesiones, () => sesionesAhora)
         await update($, esperas, () => leerEsperas(permisos.stdout))
         await update($, alertas, () => nuevas)
@@ -1305,6 +1396,25 @@ export const register: Register = on => {
     const error = await read($, fallo)
     const bloqueadas = vivas.filter(s => s.estado === 'blocked')
     const abiertas = (await read($, puertas)).filter(p => p.estado === 'abierta')
+    const { io: sesionesIo, grupos } = agruparSesiones(vivas, espera, await read($, vivos), actividad)
+    // Anchos a la medida del panel: en uno estrecho se recortan los nombres, nunca la cabecera entera.
+    const ancho = Math.max(24, (e.props.bodyColumns ?? 80) - 2)
+    const largoNombre = Math.max(12, Math.min(34, ancho - 22))
+    const largoProyecto = Math.max(8, ancho - 26)
+
+    const FilaSesion = (props: { s: Sesion; donde: string }) => (
+      <Button key={`ses-${props.s.id || props.s.nombre}`} plain onPress={() => abrirSesion(props.s.id || props.s.nombre)}>
+        <Text color={colorEstado(props.s.estado)}>
+          {'  '}
+          {props.s.estado === 'idle' ? '○ ' : '● '}
+        </Text>
+        <Text>{cortar(props.s.nombre, largoNombre)} </Text>
+        <Text color={TENUE}>
+          {props.s.estado}
+          {props.donde ? ` · ${cortar(props.donde, Math.max(10, ancho - largoNombre - 16))}` : ''}
+        </Text>
+      </Button>
+    )
 
     const Seccion = (props: { titulo: string; children?: RenderChildren }) => (
       <Box flexDirection="column" marginTop={1}>
@@ -1353,7 +1463,7 @@ export const register: Register = on => {
           {bloqueadas.map(s => (
             <Button key={`bloq-${s.id || s.nombre}`} plain onPress={() => abrirSesion(s.id || s.nombre)}>
               <Text color={ROJO}>● {cortar(s.nombre, 30)} </Text>
-              <Text color={TENUE}>bloqueada · {ultimo(s.cwd)} · abrir para aprobar</Text>
+              <Text color={TENUE}>bloqueada · {cortar(proyectoDe(s.cwd) || ultimo(s.cwd), 24)} · abrir para aprobar</Text>
             </Button>
           ))}
         </Seccion>
@@ -1382,12 +1492,35 @@ export const register: Register = on => {
 
         <Seccion titulo="Sesiones">
           {vivas.length === 0 && <Text color={TENUE}>Sin datos todavía.</Text>}
-          {vivas.map(s => (
+          {sesionesIo.map(s => (
             <Button key={`ses-${s.id || s.nombre}`} plain onPress={() => abrirSesion(s.id || s.nombre)}>
-              <Text color={colorEstado(s.estado)}>{s.estado === 'idle' ? '○ ' : '● '}</Text>
-              <Text>{cortar(s.nombre, 34)} </Text>
-              <Text color={TENUE}>{s.estado} · {ultimo(s.cwd)}</Text>
+              <Text color={ACENTO}>✦ </Text>
+              <Text bold>{s.nombre} </Text>
+              <Text color={TENUE}>{s.estado}</Text>
             </Button>
+          ))}
+          {grupos.map(g => (
+            <Box key={`grupo-${g.titulo}`} flexDirection="column" marginTop={1}>
+              <Text>
+                <Text color={g.clave === '' ? TENUE : ACENTO} bold>
+                  ▸ {cortar(g.titulo, largoProyecto)}
+                </Text>
+                <Text color={TENUE}>
+                  {' '}
+                  · {g.sesiones.length} {g.sesiones.length === 1 ? 'sesión' : 'sesiones'}
+                </Text>
+                {g.sueltos.length > 0 && <Text color={AMBAR}> · ⚙ {g.sueltos.length}</Text>}
+                {g.esperan > 0 && <Text color={ROJO}> · {g.esperan} te {g.esperan === 1 ? 'espera' : 'esperan'}</Text>}
+              </Text>
+              {g.sesiones.map(s => (
+                <FilaSesion s={s} donde={dondeEn(s.cwd, g.clave)} />
+              ))}
+              {g.sueltos.map(t => (
+                <Text color={AMBAR}>
+                  {'  '}⚙ {t.id} <Text color={TENUE}>{cortar(t.tarea.replace(/\s+/g, ' '), Math.max(10, ancho - 12))}</Text>
+                </Text>
+              ))}
+            </Box>
           ))}
           {vivas.length > 0 && <Text color={TENUE}>Pulsa una sesión para abrirla o traer su ventana.</Text>}
         </Seccion>

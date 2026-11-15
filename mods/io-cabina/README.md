@@ -17,6 +17,11 @@ simbólico a esta carpeta. Tras cambiarlo: `/reload-plugins` en la sesión de Í
   llegar a Ío con `$.prompt.submit` (un mensaje del mod que entra como turno nuevo en cuanto Ío está
   libre). **Nunca se ejecuta el comando de la puerta**: eso lo hace Ío. Fuera de la sesión de Ío no
   se manda nada; ahí sirve `narrador puerta esperar ID` en un Monitor.
+- **Sesiones por proyecto** (`/cabina`): la sesión de Ío arriba, aparte; el resto, agrupado por la
+  carpeta de primer nivel bajo `~/Documentos/greedisgood/` o `~/Documentos/thereisnospoon/` (las
+  subcarpetas y los worktrees cuentan como su proyecto, y se marcan con «⎇»), y lo de fuera en «otros».
+  Cada cabecera lleva el recuento, los trabajadores sin interfaz (⚙) y lo que te espera. Primero van
+  los grupos con algo esperándote y luego por actividad reciente (cuándo se vio una sesión ocupada).
 - **Franja** (`AbovePrompt`): trabajadores en marcha por id corto y tarea, esperas de permiso,
   puertas abiertas, lo que ya enseñaba (bloqueadas, alertas, parte, roadmap, hallazgos) y el gasto
   de esta sesión si el motor lo lleva (`$.session.usage`). El gasto de todo el día no se puede
