@@ -29,7 +29,7 @@
   narrador decisiones listar [-n N] [--sesion ID] [--proyecto P] [--desde AAAA-MM-DD] [--tipo T] [--json] | ruta
                              (registro de decisiones: lo que Claude iba a hacer y por qué)
   narrador sesion abrir NOMBRE|ID   (trabajador: terminal con su chat; interactiva: trae su ventana al frente)
-  narrador sesion plan PROYECTO ARCHIVO_PROMPT [--titulo T] [--modelo fable]   (abre una sesión en modo plan, comprueba que arranca y da su id)
+  narrador sesion plan PROYECTO ARCHIVO_PROMPT [--titulo T] [--modelo opus]   (abre una sesión en modo plan, comprueba que arranca y da su id)
   narrador sesion esperar ID|TÍTULO [--max MIN]   (bloquea hasta que esa sesión se para o se cierra; para un Monitor de Ío)
   narrador sesion cerrar ID|TÍTULO   (termina una sesión abierta con `sesion plan` y cierra su terminal entera)
   narrador cierre resumen   (lo que el hook de cierre de turno ha bloqueado o anotado)

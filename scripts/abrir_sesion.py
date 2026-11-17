@@ -1,7 +1,7 @@
 """Abre sesiones de Claude Code y las deja vigiladas.
 
   narrador sesion abrir NOMBRE|ID
-  narrador sesion plan PROYECTO ARCHIVO_PROMPT [--titulo T] [--modelo fable]
+  narrador sesion plan PROYECTO ARCHIVO_PROMPT [--titulo T] [--modelo opus]
   narrador sesion esperar ID|TÍTULO [--max MIN]
   narrador sesion cerrar ID|TÍTULO
 
@@ -33,7 +33,7 @@ from visor import recortar, ultimo_turno
 
 SESIONES = Path.home() / ".claude" / "sessions"
 PLANES = Path.home() / ".claude" / "plans"
-MODELO_PLAN = "fable"
+MODELO_PLAN = "opus"
 ESPERA_APERTURA = 20  # s que se espera a que la sesión nueva aparezca
 ESPERA_SESION = 15  # s entre miradas al estado de la sesión
 RECIENTE = 24 * 3600  # s: lo lanzado antes ya no cuenta como «sin vigilar»
