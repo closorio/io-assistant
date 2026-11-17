@@ -521,7 +521,9 @@ def esperar(nombre: str, maximo_min: float | None = None) -> int:
                 break
         elif ahora - ultima_agentes >= ESPERA_AGENTES:
             ultima_agentes = ahora
-            vivo = next((a for a in agentes(todas=True) if a.get("name") == t["nombre"]), None)
+            mismos = [a for a in agentes(todas=True) if a.get("name") == t["nombre"]]
+            # al retomar una sesión con --resume quedan dos con el mismo nombre: vale la que tiene proceso
+            vivo = next((a for a in mismos if _con_proceso(a)), mismos[0] if mismos else None)
             sin_actividad = sin_actividad + 1 if not vivo or vivo.get("status") != "busy" else 0
             if sin_actividad >= 2:  # dos consultas seguidas sin trabajar y sin informe
                 estado = "parado sin informe" if not vivo else f"{vivo.get('status') or vivo.get('state') or 'parado'} sin informe"
