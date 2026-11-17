@@ -269,9 +269,59 @@ def nombre_trabajador(ruta: Path, registro: list[dict]) -> str:
     return f"io-{re.sub(r'[^a-z0-9]+', '-', ruta.name.lower()).strip('-')[:24]}-{id_corto(usados)}"
 
 
-def lanzar(proyecto: str, tarea: str, modelo: str | None = None, contrato: bool = False) -> None:
+TOPE_TRABAJADORES = int(os.environ.get("NARRADOR_TOPE_TRABAJADORES", "2"))
+MEMORIA_MINIMA_GB = float(os.environ.get("NARRADOR_MEMORIA_MINIMA_GB", "3"))
+ESPERA_COLA = 60  # s entre miradas a si ya hay hueco
+
+
+def memoria_disponible_gb() -> float:
+    try:
+        with open("/proc/meminfo", encoding="ascii") as f:
+            for linea in f:
+                if linea.startswith("MemAvailable:"):
+                    return int(linea.split()[1]) / 1048576
+    except (OSError, ValueError):
+        pass
+    return float("inf")
+
+
+def trabajadores_activos(agentes_vivos: list[dict] | None = None, registro: list[dict] | None = None) -> int:
+    """Trabajadores con proceso vivo y ocupados: los de fondo (`claude agents`) y los `claude -p` del registro.
+
+    El 17-11-2026 cinco a la vez (suites y Playwright) llenaron la memoria y tumbaron la sesión gráfica."""
+    agentes_vivos = agentes(todas=True) if agentes_vivos is None else agentes_vivos
+    fondo = {a.get("name") for a in agentes_vivos
+             if a.get("kind") == "background" and a.get("status") == "busy" and _con_proceso(a)}
+    sueltos = set()
+    for t in (_registro() if registro is None else registro):
+        if t.get("tipo") == "p" and t["nombre"] not in fondo:
+            try:
+                os.kill(int(t.get("pid", 0)), 0)
+                sueltos.add(t["nombre"])
+            except (OSError, ValueError):
+                pass
+    return len(fondo) + len(sueltos)
+
+
+def hay_hueco() -> tuple[bool, str]:
+    activos = trabajadores_activos()
+    if activos >= TOPE_TRABAJADORES:
+        return False, f"{activos} trabajadores activos (tope {TOPE_TRABAJADORES})"
+    libre = memoria_disponible_gb()
+    if libre < MEMORIA_MINIMA_GB:
+        return False, f"solo {libre:.1f} GB de memoria disponible (mínimo {MEMORIA_MINIMA_GB:g})"
+    return True, ""
+
+
+def lanzar(proyecto: str, tarea: str, modelo: str | None = None, contrato: bool = False,
+           nombre: str | None = None, cola: bool = True) -> None:
     ruta = resolver_proyecto(proyecto)
-    nombre = nombre_trabajador(ruta, _registro())
+    if cola:
+        libre, motivo = hay_hueco()
+        if not libre:
+            _encolar(ruta, tarea, modelo, contrato, motivo)
+            return
+    nombre = nombre or nombre_trabajador(ruta, _registro())
     original = tarea
     if contrato:
         _archivo_resultado(nombre).parent.mkdir(parents=True, exist_ok=True)
@@ -302,9 +352,36 @@ def lanzar(proyecto: str, tarea: str, modelo: str | None = None, contrato: bool 
         print(f"trabajador {nombre} lanzado sin interfaz en {corta(str(ruta))} (la carpeta no es de confianza para --bg)")
         print(f"  sesión {sesion}")
         print(f"  síguelo con: narrador seguir {sesion} · estado: narrador trabajador lista")
-    lista = _registro()
+    lista = [t for t in _registro() if not (t["nombre"] == nombre and t.get("tipo") == "cola")]
     lista.append(registro)
     _guardar(lista)
+
+
+def _encolar(ruta: Path, tarea: str, modelo: str | None, contrato: bool, motivo: str) -> None:
+    """Sin hueco: apunta el trabajador como «cola» con su nombre ya fijado y deja un proceso que lo lanza
+    en cuanto lo haya, así `esperar NOMBRE` funciona desde ya."""
+    lista = _registro()
+    nombre = nombre_trabajador(ruta, lista)
+    lista.append({"nombre": nombre, "ruta": str(ruta), "tarea": tarea, "contrato": contrato, "modelo": modelo,
+                  "inicio": time.time(), "tipo": "cola"})
+    _guardar(lista)
+    orden = [sys.executable, str(Path(__file__).resolve()), "despachar", nombre]
+    subprocess.Popen(orden, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                     start_new_session=True)
+    print(f"trabajador {nombre} en cola: {motivo}; se lanza solo en cuanto haya hueco")
+    print(f"  vigílalo igual con: narrador trabajador esperar {nombre}")
+
+
+def despachar(nombre: str) -> None:
+    """Proceso de la cola: espera hueco y lanza el trabajador apuntado con ese nombre."""
+    while True:
+        t = next((t for t in _registro() if t["nombre"] == nombre and t.get("tipo") == "cola"), None)
+        if t is None:
+            return  # ya lanzado o quitado a mano
+        if hay_hueco()[0]:
+            lanzar(t["ruta"], t["tarea"], t.get("modelo"), bool(t.get("contrato")), nombre=nombre, cola=False)
+            return
+        time.sleep(ESPERA_COLA)
 
 
 def _estado_p(t: dict) -> tuple[str, str]:
@@ -347,6 +424,8 @@ def lista_trabajadores() -> None:
             estado, sesion, resultado = a.get("status", "desconocido"), a.get("sessionId", ""), ""
         elif t.get("tipo") == "plan":
             estado, sesion, resultado = "sesión en modo plan", t.get("session_id", ""), ""
+        elif t.get("tipo") == "cola":
+            estado, sesion, resultado = "en cola", "", ""
         else:
             (estado, resultado), sesion = _estado_p(t), t.get("session_id", "")
         if not resultado and t.get("contrato"):
@@ -366,6 +445,8 @@ def abrir(nombre: str) -> None:
     terminal = shutil.which("gnome-terminal")
     if not terminal:
         raise SystemExit("no encuentro gnome-terminal")
+    if t.get("tipo") == "cola":
+        raise SystemExit(f"{t['nombre']} sigue en cola: aún no hay chat que abrir")
     if t.get("tipo") == "bg":
         orden = [claude(), "attach", t["nombre"]]
     else:
@@ -421,6 +502,14 @@ def esperar(nombre: str, maximo_min: float | None = None) -> int:
     sin_actividad = 0
     estado, resultado = "trabajando", ""
     while True:
+        if t.get("tipo") == "cola":  # aún sin lanzar: se vuelve a leer hasta que el despachador lo lance
+            t = _buscar_trabajador(t["nombre"])
+            if t.get("tipo") == "cola":
+                if maximo_min is not None and time.monotonic() - inicio > maximo_min * 60:
+                    estado = "sigue en cola"
+                    break
+                time.sleep(ESPERA_SONDEO)
+                continue
         informe = _informe(t) if t.get("contrato") else None
         if informe is not None:
             estado, resultado = "terminado", resumen_voz(informe)
@@ -447,9 +536,9 @@ def esperar(nombre: str, maximo_min: float | None = None) -> int:
     if t.get("contrato"):
         lineas.append(f"Informe completo: {corta(str(_archivo_resultado(t['nombre'])))}")
     print("\n".join(lineas), flush=True)
-    if estado != "sigue trabajando":
+    if estado not in ("sigue trabajando", "sigue en cola"):
         marcar_vigilancia(t["nombre"], fin=True)
-    return 0 if estado in ("terminado", "sigue trabajando") else 1
+    return 0 if estado in ("terminado", "sigue trabajando", "sigue en cola") else 1
 
 
 def trabajador(args: list[str]) -> None:
@@ -515,3 +604,7 @@ def guia(tema: str | None) -> None:
     if texto.startswith("---"):
         texto = texto.split("---", 2)[2].lstrip("\n")
     print(texto)
+
+
+if __name__ == "__main__" and len(sys.argv) == 3 and sys.argv[1] == "despachar":
+    despachar(sys.argv[2])
